@@ -4,6 +4,12 @@
 #include "Helpers/Camera.h"
 #include "Helpers/Menus.h"
 #include "Helpers/Maths.h"
+#include "Logger.h"
+
+#include <windows.h>
+#include <mmsystem.h>
+// Only used for the HUD toggle sound effect
+#pragma comment(lib, "winmm.lib")
 
 
 #define RegisterBoolInput(set, x) x = vr->RegisterBoolInput(set, #x);
@@ -419,6 +425,31 @@ unsigned char InputHandler::UpdateFlashlight()
 	return 0;
 }
 
+void InputHandler::PlayHUDToggleSound()
+{
+	const std::string& soundFile = Game::instance.c_HUDToggleSound->Value();
+
+	if (soundFile.empty())
+	{
+		return;
+	}
+
+	const std::string soundPath = "VR/" + soundFile;
+
+	// SND_ASYNC returns immediately so we never stall the frame, SND_NODEFAULT stops
+	// Windows playing its default beep if the file is missing or not a valid PCM wav
+	if (!PlaySoundA(soundPath.c_str(), NULL, SND_FILENAME | SND_ASYNC | SND_NODEFAULT))
+	{
+		static bool bWarned = false;
+		if (!bWarned)
+		{
+			bWarned = true;
+			Logger::err << "[HUDToggle] Could not play " << soundPath
+				<< ". Check the file exists and is an uncompressed 16-bit PCM .wav" << std::endl;
+		}
+	}
+}
+
 void InputHandler::UpdateHUDToggle()
 {
 	const float toggleDistance = Game::instance.c_HUDToggleDistance->Value();
@@ -462,6 +493,7 @@ void InputHandler::UpdateHUDToggle()
 		{
 			bWasTappingHUD = true;
 			Game::instance.bHideHUD = !Game::instance.bHideHUD;
+			PlayHUDToggleSound();
 		}
 	}
 	else if (distanceSqr > releaseDistance * releaseDistance)

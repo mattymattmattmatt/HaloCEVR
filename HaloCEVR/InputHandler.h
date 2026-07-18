@@ -26,6 +26,7 @@ protected:
 
 	unsigned char UpdateFlashlight();
 	void UpdateHUDToggle();
+	void PlayHUDToggleSound();
 	unsigned char UpdateHolsterSwitchWeapons();
 	unsigned char UpdateMelee();
 	unsigned char UpdateCrouch();

@@ -225,6 +225,7 @@ public:
 	FloatProperty* c_RightHandFlashlightDistance = nullptr;
 	FloatProperty* c_HUDToggleDistance = nullptr;
 	Vector3Property* c_HUDToggleOffset = nullptr;
+	StringProperty* c_HUDToggleSound = nullptr;
 	BoolProperty* c_EnableWeaponHolsters = nullptr;
 	FloatProperty* c_LeftShoulderHolsterActivationDistance = nullptr;
 	Vector3Property* c_LeftShoulderHolsterOffset = nullptr;
