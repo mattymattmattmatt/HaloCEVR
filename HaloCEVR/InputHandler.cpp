@@ -128,6 +128,8 @@ void InputHandler::UpdateInputs(bool bInVehicle)
 		}
 	}
 
+	UpdateHUDToggle();
+
 	if (Game::instance.c_EnableWeaponHolsters->Value())
 	{
 		unsigned char HolsterSwitchWeapons = UpdateHolsterSwitchWeapons();
@@ -415,6 +417,57 @@ unsigned char InputHandler::UpdateFlashlight()
 	}
 
 	return 0;
+}
+
+void InputHandler::UpdateHUDToggle()
+{
+	const float toggleDistance = Game::instance.c_HUDToggleDistance->Value();
+
+	if (toggleDistance <= 0.0f)
+	{
+		bWasTappingHUD = false;
+		return;
+	}
+
+	IVR* vr = Game::instance.GetVR();
+
+	// Mirror the zone for left handed players so it always sits on the dominant hand's
+	// side of the head (the offset's y axis points left)
+	Vector3 offset = Game::instance.c_HUDToggleOffset->Value();
+	if (Game::instance.bLeftHanded)
+	{
+		offset.y = -offset.y;
+	}
+
+	const Vector3 togglePos = vr->GetHMDTransform() * offset;
+
+	Vector3 handPos;
+	if (Game::instance.bLeftHanded)
+	{
+		handPos = vr->GetRawControllerTransform(ControllerRole::Left) * Vector3(0.0f, 0.0f, 0.0f);
+	}
+	else
+	{
+		handPos = vr->GetRawControllerTransform(ControllerRole::Right) * Vector3(0.0f, 0.0f, 0.0f);
+	}
+
+	// The hand must leave a larger zone before another toggle can register, otherwise
+	// tracking jitter on the boundary would toggle repeatedly
+	const float releaseDistance = toggleDistance * 1.5f;
+	const float distanceSqr = (togglePos - handPos).lengthSqr();
+
+	if (!bWasTappingHUD)
+	{
+		if (distanceSqr < toggleDistance * toggleDistance)
+		{
+			bWasTappingHUD = true;
+			Game::instance.bHideHUD = !Game::instance.bHideHUD;
+		}
+	}
+	else if (distanceSqr > releaseDistance * releaseDistance)
+	{
+		bWasTappingHUD = false;
+	}
 }
 
 unsigned char InputHandler::UpdateHolsterSwitchWeapons()

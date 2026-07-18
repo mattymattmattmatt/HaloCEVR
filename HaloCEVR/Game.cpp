@@ -520,6 +520,15 @@ bool Game::PreDrawHUD()
 {
 	VR_PROFILE_SCOPE(Game_PreDrawHUD);
 
+	// The HUD toggle gesture has hidden the floating UI layer, so skip drawing it.
+	// This must happen before any state is modified, as returning false means
+	// PostDrawHUD will not be called to restore it. Only the left eye pass is
+	// skipped so the scope and mirror views are unaffected.
+	if (bHideHUD && GetRenderState() == ERenderState::LEFT_EYE)
+	{
+		return false;
+	}
+
 	// Only render UI once per frame
 	if (GetRenderState() != ERenderState::LEFT_EYE)
 	{
@@ -1066,6 +1075,8 @@ void Game::SetupConfigs()
 	c_OffhandHandFlashlight = config.RegisterBool("OffhandHandFlashlight", "Use your offhand for toggling the flashlight, your offhand hand is the hand not holding a weapon", true);
 	c_LeftHandFlashlightDistance = config.RegisterFloat("LeftHandFlashlight", "Bringing the left hand within this distance of the head will toggle the flashlight (<0 to disable)", 0.2f);
 	c_RightHandFlashlightDistance = config.RegisterFloat("RightHandFlashlight", "Bringing the right hand within this distance of the head will toggle the flashlight (<0 to disable)", 0.2f);
+	c_HUDToggleDistance = config.RegisterFloat("HUDToggleDistance", "Bringing the dominant hand within this distance of the HUD toggle zone will show/hide the floating HUD (<0 to disable)", -1.0f);
+	c_HUDToggleOffset = config.RegisterVector3("HUDToggleOffset", "The (forward, left, up) Offset of the HUD toggle zone relative to the headset's location. Mirrored horizontally when playing left handed", Vector3(-0.05f, -0.18f, 0.0f));
 	c_LeftHandMeleeSwingSpeed = config.RegisterFloat("LeftHandMeleeSwingSpeed", "Minimum vertical velocity of left hand required to initiate a melee attack in m/s (<0 to disable)", 2.5f);
 	c_RightHandMeleeSwingSpeed = config.RegisterFloat("RightHandMeleeSwingSpeed", "Minimum vertical velocity of right hand required to initiate a melee attack in m/s (<0 to disable)", 2.5f);
 	c_CrouchHeight = config.RegisterFloat("CrouchHeight", "Minimum height to duck by in metres to automatically trigger the crouch input in game (<0 to disable)", 0.15f);
