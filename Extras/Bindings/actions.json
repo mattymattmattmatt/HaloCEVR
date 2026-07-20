@@ -129,6 +129,16 @@
             "type": "boolean"
         },
         {
+            "name": "/actions/default/in/ToggleCrosshair",
+            "requirement": "optional",
+            "type": "boolean"
+        },
+        {
+            "name": "/actions/left handed/in/ToggleCrosshair",
+            "requirement": "optional",
+            "type": "boolean"
+        },
+        {
             "name": "/actions/default/in/Zoom",
             "requirement": "suggested",
             "type": "boolean"

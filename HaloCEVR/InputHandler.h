@@ -45,6 +45,7 @@ protected:
 	bool bWasGripping = false;
 	bool bWasSwappingHands = false;
 	bool bWasTappingHUD = false;
+	bool bWasTogglingCrosshair = false;
 	
 	InputBindingID Jump = 0;
 	InputBindingID SwitchGrenades = 0;
@@ -57,6 +58,7 @@ protected:
 	InputBindingID MenuForward = 0;
 	InputBindingID MenuBack = 0;
 	InputBindingID Crouch = 0;
+	InputBindingID ToggleCrosshair = 0;
 	InputBindingID Zoom = 0;
 	InputBindingID Reload = 0;
 	InputBindingID Move = 0;

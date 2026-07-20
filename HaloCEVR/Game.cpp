@@ -669,6 +669,13 @@ bool Game::PreDrawCrosshair(short* anchorLocation)
 		return true;
 	}
 
+	// The crosshair has been toggled off, so skip drawing the world crosshair.
+	// The scope reticle is handled above and is unaffected.
+	if (!bShowCrosshair && anchorLocation && *anchorLocation == 4) // Centre = 4
+	{
+		return false;
+	}
+
 	crosshairRealSurface = Helpers::GetRenderTargets()[1].renderSurface;
 	if (anchorLocation && *anchorLocation == 4) // Centre = 4
 	{
@@ -1050,6 +1057,7 @@ void Game::SetupConfigs()
 	c_UIOverlayCurvature = config.RegisterFloat("UIOverlayCurvature", "Curvature of the UI Overlay, on a scale of 0 to 1", 0.1f);
 	c_UIOverlayRenderScale = config.RegisterFloat("UIOverlayRenderScale", "Resolution of the UI overlay, expressed as a proportion of the headset's render scale (e.g. 0.5 = half resolution), low values default to 640px", 0.5f);
 	c_ShowCrosshair = config.RegisterBool("ShowCrosshair", "Display a floating crosshair in the world at the location you are aiming", true);
+	bShowCrosshair = c_ShowCrosshair->Value();
 	// Control settings
 	c_LeftHanded = config.RegisterBool("LeftHanded", "Make the left hand the dominant hand by default. This swaps the button bindings but doesn't swap the sticks. Left handed bindings with the sticks swapped can be found in the SteamVR overlay", false);
 	c_SnapTurn = config.RegisterBool("SnapTurn", "The look input will instantly rotate the view by a fixed amount, rather than smoothly rotating", true);
@@ -1289,7 +1297,7 @@ void Game::UpdateCrosshairAndScope()
 
 	fixupRotation(overlayTransform, targetPos);
 
-	if (c_ShowCrosshair->Value())
+	if (bShowCrosshair)
 	{
 		vr->SetCrosshairTransform(overlayTransform);
 	}

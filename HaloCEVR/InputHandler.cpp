@@ -47,6 +47,7 @@ void InputHandler::UpdateRegisteredInputs()
 	RegisterBoolInput(actionSet, MenuForward);
 	RegisterBoolInput(actionSet, MenuBack);
 	RegisterBoolInput(actionSet, Crouch);
+	RegisterBoolInput(actionSet, ToggleCrosshair);
 	RegisterBoolInput(actionSet, Zoom);
 	RegisterBoolInput(actionSet, Reload);
 	RegisterBoolInput(actionSet, TwoHandGrip);
@@ -135,6 +136,16 @@ void InputHandler::UpdateInputs(bool bInVehicle)
 	}
 
 	UpdateHUDToggle();
+
+	// Toggle the floating crosshair when the bound action is pressed (edge detected)
+	{
+		bool bTogglePressed = vr->GetBoolInput(ToggleCrosshair);
+		if (bTogglePressed && !bWasTogglingCrosshair)
+		{
+			Game::instance.bShowCrosshair = !Game::instance.bShowCrosshair;
+		}
+		bWasTogglingCrosshair = bTogglePressed;
+	}
 
 	if (Game::instance.c_EnableWeaponHolsters->Value())
 	{

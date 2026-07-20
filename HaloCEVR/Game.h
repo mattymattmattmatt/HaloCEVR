@@ -97,6 +97,8 @@ public:
 	bool bLeftHanded = false;
 	// Set by the HUD toggle gesture, when true the floating UI layer is not drawn
 	bool bHideHUD = false;
+	// Runtime crosshair visibility, initialised from c_ShowCrosshair, toggled by the ToggleCrosshair binding
+	bool bShowCrosshair = true;
 	bool bUse3DOFAiming = false;
 
 	Config config;
