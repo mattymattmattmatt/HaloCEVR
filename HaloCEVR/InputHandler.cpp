@@ -462,25 +462,35 @@ void InputHandler::UpdateHUDToggle()
 
 	IVR* vr = Game::instance.GetVR();
 
-	// Mirror the zone for left handed players so it always sits on the dominant hand's
-	// side of the head (the offset's y axis points left)
+	// Use the opposite hand to the flashlight so the two head gestures never share a
+	// hand. The flashlight uses the offhand when OffhandHandFlashlight is set (the hand
+	// not holding a weapon, i.e. left when right handed), otherwise the dominant hand.
+	bool bFlashlightUsesLeft;
+	if (Game::instance.c_OffhandHandFlashlight->Value())
+	{
+		// Offhand: left for right handed players, right for left handed players
+		bFlashlightUsesLeft = !Game::instance.bLeftHanded;
+	}
+	else
+	{
+		// Dominant hand: right for right handed players, left for left handed players
+		bFlashlightUsesLeft = Game::instance.bLeftHanded;
+	}
+
+	// The HUD toggle uses the inverse hand of the flashlight
+	bool bHUDUsesLeft = !bFlashlightUsesLeft;
+
+	// The offset's y axis points left, so flip it to sit beside whichever hand is used
 	Vector3 offset = Game::instance.c_HUDToggleOffset->Value();
-	if (Game::instance.bLeftHanded)
+	if (bHUDUsesLeft)
 	{
 		offset.y = -offset.y;
 	}
 
 	const Vector3 togglePos = vr->GetHMDTransform() * offset;
 
-	Vector3 handPos;
-	if (Game::instance.bLeftHanded)
-	{
-		handPos = vr->GetRawControllerTransform(ControllerRole::Left) * Vector3(0.0f, 0.0f, 0.0f);
-	}
-	else
-	{
-		handPos = vr->GetRawControllerTransform(ControllerRole::Right) * Vector3(0.0f, 0.0f, 0.0f);
-	}
+	ControllerRole hudHand = bHUDUsesLeft ? ControllerRole::Left : ControllerRole::Right;
+	Vector3 handPos = vr->GetRawControllerTransform(hudHand) * Vector3(0.0f, 0.0f, 0.0f);
 
 	// The hand must leave a larger zone before another toggle can register, otherwise
 	// tracking jitter on the boundary would toggle repeatedly
