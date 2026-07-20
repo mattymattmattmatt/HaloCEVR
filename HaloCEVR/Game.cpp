@@ -520,15 +520,6 @@ bool Game::PreDrawHUD()
 {
 	VR_PROFILE_SCOPE(Game_PreDrawHUD);
 
-	// The HUD toggle gesture has hidden the floating UI layer, so skip drawing it.
-	// This must happen before any state is modified, as returning false means
-	// PostDrawHUD will not be called to restore it. Only the left eye pass is
-	// skipped so the scope and mirror views are unaffected.
-	if (bHideHUD && GetRenderState() == ERenderState::LEFT_EYE)
-	{
-		return false;
-	}
-
 	// Only render UI once per frame
 	if (GetRenderState() != ERenderState::LEFT_EYE)
 	{
