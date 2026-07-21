@@ -390,14 +390,67 @@ void InputHandler::UpdateCameraForVehicles(float& yaw, float& pitch)
 	const float YawDelta = lookInput.x * Game::instance.c_HorizontalVehicleTurnAmount->Value() * Game::instance.lastDeltaTime;
 	const float PitchDelta = lookInput.y * Game::instance.c_VerticalVehicleTurnAmount->Value() * Game::instance.lastDeltaTime;
 
+	// Stick always drives the body facing (yawOffset), preserving stock behaviour.
 	float yawOffset = vr->GetYawOffset();
-	
 	yawOffset += YawDelta;
-
 	vr->SetYawOffset(yawOffset);
 
-	yaw = -DegToRad * YawDelta;
-	pitch = DegToRad * PitchDelta;
+	// Base (stock) per-frame camera deltas from the stick
+	float stickYaw = -DegToRad * YawDelta;
+	float stickPitch = DegToRad * PitchDelta;
+
+	if (Game::instance.c_VehicleFaceAim && Game::instance.c_VehicleFaceAim->Value())
+	{
+		// EXPERIMENTAL head-aim: nudge the camera toward where the head is looking.
+		// The residual between HMD facing and game facing is applied as an extra
+		// delta, scaled and smoothed, so aim drifts toward head direction over time
+		// rather than snapping. Stick still contributes for fine control.
+		Vector3 lookHMD = vr->GetHMDTransform().getLeftAxis();
+		Vector3 lookGame = Game::instance.bDetectedChimera
+			? Game::instance.LastLookDir
+			: Helpers::GetCamera().lookDir;
+
+		float yawHMD = atan2(lookHMD.y, lookHMD.x);
+		float yawGame = atan2(lookGame.y, lookGame.x);
+		float yawResidual = yawHMD - yawGame;
+
+		// Wrap to [-pi, pi] so it always turns the short way
+		const float PI = 3.141593f;
+		while (yawResidual > PI) yawResidual -= 2.0f * PI;
+		while (yawResidual < -PI) yawResidual += 2.0f * PI;
+
+		float smoothing = Game::instance.c_VehicleFaceAimSmoothing
+			? Game::instance.c_VehicleFaceAimSmoothing->Value() : 0.4f;
+		smoothing = std::max(0.0f, std::min(0.95f, smoothing));
+
+		float blend = Game::instance.c_VehicleFaceAimBlend
+			? Game::instance.c_VehicleFaceAimBlend->Value() : 0.8f;
+		blend = std::max(0.0f, std::min(1.0f, blend));
+
+		// Pitch residual (vertical). Same convention: angle above/below horizontal.
+		float pitchHMD = atan2(lookHMD.z, sqrt(lookHMD.x * lookHMD.x + lookHMD.y * lookHMD.y));
+		float pitchGame = atan2(lookGame.z, sqrt(lookGame.x * lookGame.x + lookGame.y * lookGame.y));
+		float pitchResidual = pitchHMD - pitchGame;
+
+		// Smooth both axes so the follow is gentle, not 1:1 twitchy
+		vehicleFaceAimYaw = vehicleFaceAimYaw * smoothing + yawResidual * (1.0f - smoothing);
+		vehicleFaceAimPitch = vehicleFaceAimPitch * smoothing + pitchResidual * (1.0f - smoothing);
+
+		// Apply the smoothed residuals as this frame's face-aim deltas,
+		// scaled by frame time for framerate independence
+		float speed = Game::instance.c_VehicleFaceAimSpeed
+			? Game::instance.c_VehicleFaceAimSpeed->Value() : 7.0f;
+		float faceYaw = vehicleFaceAimYaw * Game::instance.lastDeltaTime * speed;
+		float facePitch = vehicleFaceAimPitch * Game::instance.lastDeltaTime * speed;
+
+		yaw = stickYaw * (1.0f - blend) + faceYaw * blend;
+		pitch = stickPitch * (1.0f - blend) + facePitch * blend;
+	}
+	else
+	{
+		yaw = stickYaw;
+		pitch = stickPitch;
+	}
 }
 
 unsigned char InputHandler::UpdateFlashlight()

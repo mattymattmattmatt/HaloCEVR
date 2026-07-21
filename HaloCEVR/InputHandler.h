@@ -19,6 +19,8 @@ public:
 
 	// Track previous yaw offset to detect snap turns for weapon position smoothing
 	float lastSmoothingYawOffset = 0.0f;
+	float vehicleFaceAimYaw = 0.0f;
+	float vehicleFaceAimPitch = 0.0f;
 	bool bLastYawInitialized = false;
 
 protected:
