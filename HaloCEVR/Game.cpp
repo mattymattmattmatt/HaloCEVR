@@ -210,6 +210,43 @@ void Game::PreDrawFrame(struct Renderer* renderer, float deltaTime)
 
 			bShowViewModel = bNewShowViewModel;
 		}
+		// On leaving a vehicle the yawOffset accumulated by the vehicle camera is
+		// stale for the on-foot reconciliation, which causes a one-frame camera
+		// whip. Instead of correcting it in a single frame (which is itself a
+		// visible snap), capture the residual and ease yawOffset to the corrected
+		// value over a short blend so the camera settles smoothly.
+		if (bInVehicle && !bNewShowViewModel)
+		{
+			IVR* vr = GetVR();
+			Vector3 lookHMD = vr->GetHMDTransform().getLeftAxis();
+			Vector3 lookGame = bDetectedChimera ? LastLookDir : Helpers::GetCamera().lookDir;
+			float yawHMD = atan2(lookHMD.y, lookHMD.x);
+			float yawGame = atan2(lookGame.y, lookGame.x);
+
+			vehicleExitStartOffset = vr->GetYawOffset();
+			// Target offset makes the residual HMD-vs-game yaw delta zero
+			vehicleExitTargetOffset = vehicleExitStartOffset + (yawHMD - yawGame);
+			vehicleExitBlendT = 1.0f;
+		}
+
+		// Advance the exit blend if one is in progress
+		if (vehicleExitBlendT > 0.0f)
+		{
+			// Step scaled by frame time so the blend duration is framerate
+			// independent. ~0.2s blend => rate of 5.0 per second.
+			vehicleExitBlendT -= lastDeltaTime * 5.0f;
+			if (vehicleExitBlendT < 0.0f)
+			{
+				vehicleExitBlendT = 0.0f;
+			}
+
+			float t = 1.0f - vehicleExitBlendT;      // 0 -> 1
+			t = t * t * (3.0f - 2.0f * t);           // smoothstep ease
+
+			float newOffset = vehicleExitStartOffset + (vehicleExitTargetOffset - vehicleExitStartOffset) * t;
+			GetVR()->SetYawOffset(newOffset);
+		}
+
 		bInVehicle = bNewShowViewModel;
 		bHasWeapon = Player->weapon.id != 0xffff;
 	}

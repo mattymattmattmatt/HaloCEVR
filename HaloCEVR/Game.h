@@ -189,6 +189,10 @@ protected:
 	bool bShowViewModel = false;
 
 	bool bInVehicle = false;
+	// Vehicle-to-foot camera exit blend state
+	float vehicleExitBlendT = 0.0f;      // counts 1 -> 0 while blending
+	float vehicleExitStartOffset = 0.0f;
+	float vehicleExitTargetOffset = 0.0f;
 	bool bHasWeapon = true;
 
 	ERenderState mirrorSource;
