@@ -963,6 +963,18 @@ void Game::UpdateCamera(float& yaw, float& pitch)
 	return;
 #endif
 
+	// During a cutscene the cinematic script is driving the game camera. Injecting
+	// our own corrections towards the headset fights that scripted motion, which
+	// shows up as the view oscillating back and forth. Leave the camera to the
+	// script; the headset still controls where the player looks within the view.
+	if (c_StabiliseCutsceneCamera && c_StabiliseCutsceneCamera->Value()
+		&& Helpers::GetCutsceneData()->bInCutscene)
+	{
+		yaw = 0.0f;
+		pitch = 0.0f;
+		return;
+	}
+
 	if (bInVehicle && !bHasWeapon)
 	{
 		inputHandler.UpdateCameraForVehicles(yaw, pitch);
@@ -1114,6 +1126,7 @@ void Game::SetupConfigs()
 	c_VehicleFaceAimBlend = config.RegisterFloat("VehicleFaceAimBlend", "How much head-aim vs stick contributes in vehicles (0 = pure stick, 1 = pure head aim)", 0.8f);
 	c_VehicleFaceAimSmoothing = config.RegisterFloat("VehicleFaceAimSmoothing", "Smoothing applied to vehicle head-aim (0 = instant, 0.5 = moderate, 0.9 = heavy lag)", 0.4f);
 	c_VehicleFaceAimSpeed = config.RegisterFloat("VehicleFaceAimSpeed", "How quickly vehicle head-aim follows your head. Higher is faster/snappier", 7.0f);
+	c_StabiliseCutsceneCamera = config.RegisterBool("StabiliseCutsceneCamera", "EXPERIMENTAL. Stop injecting VR camera corrections during cutscenes. The cinematic script drives the camera, so correcting towards the headset fights it and can cause the view to oscillate", false);
 	c_ToggleGrip = config.RegisterBool("ToggleGrip", "When true releasing two handed weapons requires pressing the grip action again", false);
 	c_TwoHandDistance = config.RegisterFloat("TwoHandDistance", "Maximum distance between both hands where the off hand grip action will enable two handed aiming (<0 for any distance)", 0.8f);
 	c_SwapHandDistance = config.RegisterFloat("SwapHandDistance", "Maximum distance between both hands where the swap weapon hand grip action will swap your weapon into the opposite hand (<0 to disable)", 0.2f);

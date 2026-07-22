@@ -230,6 +230,7 @@ public:
 	FloatProperty* c_VehicleFaceAimBlend = nullptr;
 	FloatProperty* c_VehicleFaceAimSmoothing = nullptr;
 	FloatProperty* c_VehicleFaceAimSpeed = nullptr;
+	BoolProperty* c_StabiliseCutsceneCamera = nullptr;
 	BoolProperty* c_OffhandHandFlashlight = nullptr;
 	FloatProperty* c_LeftHandFlashlightDistance = nullptr;
 	FloatProperty* c_RightHandFlashlightDistance = nullptr;
