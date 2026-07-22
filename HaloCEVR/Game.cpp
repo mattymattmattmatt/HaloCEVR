@@ -223,9 +223,14 @@ void Game::PreDrawFrame(struct Renderer* renderer, float deltaTime)
 			float yawHMD = atan2(lookHMD.y, lookHMD.x);
 			float yawGame = atan2(lookGame.y, lookGame.x);
 
+			// yawOffset is in DEGREES (see SnapTurnAmount / SmoothTurnAmount usage),
+			// but atan2 returns RADIANS, so the residual must be converted or the
+			// correction ends up ~57x too small to do anything.
+			const float RadToDeg = 180.0f / 3.141593f;
+
 			vehicleExitStartOffset = vr->GetYawOffset();
 			// Target offset makes the residual HMD-vs-game yaw delta zero
-			vehicleExitTargetOffset = vehicleExitStartOffset + (yawHMD - yawGame);
+			vehicleExitTargetOffset = vehicleExitStartOffset + (yawHMD - yawGame) * RadToDeg;
 			vehicleExitBlendT = 1.0f;
 		}
 
