@@ -211,12 +211,33 @@ void Game::PreDrawFrame(struct Renderer* renderer, float deltaTime)
 			bShowViewModel = bNewShowViewModel;
 		}
 		// On leaving a vehicle the yawOffset accumulated by the vehicle camera is
-		// stale for the on-foot reconciliation, which causes a one-frame camera
-		// whip. Instead of correcting it in a single frame (which is itself a
-		// visible snap), capture the residual and ease yawOffset to the corrected
-		// value over a short blend so the camera settles smoothly.
+		// stale for the on-foot reconciliation, which causes a camera whip.
+		// Open a short correction window rather than correcting in a single frame
+		// (which is itself a visible snap).
 		if (bInVehicle && !bNewShowViewModel)
 		{
+			vehicleExitBlendT = 1.0f;
+		}
+
+		// While the window is open, continuously drive the LIVE HMD-vs-game yaw
+		// residual towards zero. Recomputing every frame, rather than easing to a
+		// target captured on the exit frame, means the correction keeps tracking
+		// the engine's own third-to-first person exit camera while that is still
+		// moving. A fixed target goes stale as soon as the engine camera moves,
+		// which is what made the settle inconsistent.
+		if (vehicleExitBlendT > 0.0f)
+		{
+			const float duration = c_VehicleExitBlendDuration
+				? c_VehicleExitBlendDuration->Value() : 0.35f;
+			const float rate = c_VehicleExitBlendRate
+				? c_VehicleExitBlendRate->Value() : 8.0f;
+
+			vehicleExitBlendT -= lastDeltaTime / (duration > 0.01f ? duration : 0.01f);
+			if (vehicleExitBlendT < 0.0f)
+			{
+				vehicleExitBlendT = 0.0f;
+			}
+
 			IVR* vr = GetVR();
 			Vector3 lookHMD = vr->GetHMDTransform().getLeftAxis();
 			Vector3 lookGame = bDetectedChimera ? LastLookDir : Helpers::GetCamera().lookDir;
@@ -224,32 +245,32 @@ void Game::PreDrawFrame(struct Renderer* renderer, float deltaTime)
 			float yawGame = atan2(lookGame.y, lookGame.x);
 
 			// yawOffset is in DEGREES (see SnapTurnAmount / SmoothTurnAmount usage),
-			// but atan2 returns RADIANS, so the residual must be converted or the
-			// correction ends up ~57x too small to do anything.
+			// but atan2 returns RADIANS, so the residual must be converted.
 			const float RadToDeg = 180.0f / 3.141593f;
+			float residual = (yawHMD - yawGame) * RadToDeg;
 
-			vehicleExitStartOffset = vr->GetYawOffset();
-			// Target offset makes the residual HMD-vs-game yaw delta zero
-			vehicleExitTargetOffset = vehicleExitStartOffset + (yawHMD - yawGame) * RadToDeg;
-			vehicleExitBlendT = 1.0f;
-		}
-
-		// Advance the exit blend if one is in progress
-		if (vehicleExitBlendT > 0.0f)
-		{
-			// Step scaled by frame time so the blend duration is framerate
-			// independent. ~0.2s blend => rate of 5.0 per second.
-			vehicleExitBlendT -= lastDeltaTime * 5.0f;
-			if (vehicleExitBlendT < 0.0f)
+			// Always correct the short way around. Without this, exiting while
+			// facing near the +/-180 degree boundary sends the view the long way
+			// round, which is why the wobble depended on which way you were facing.
+			while (residual > 180.0f)
 			{
-				vehicleExitBlendT = 0.0f;
+				residual -= 360.0f;
+			}
+			while (residual < -180.0f)
+			{
+				residual += 360.0f;
 			}
 
-			float t = 1.0f - vehicleExitBlendT;      // 0 -> 1
-			t = t * t * (3.0f - 2.0f * t);           // smoothstep ease
+			// Approach the correction a fraction at a time: strong while the error
+			// is large, easing off as it converges. Scaled by frame time so the
+			// settle behaves the same at any framerate.
+			float alpha = rate * lastDeltaTime;
+			if (alpha > 1.0f)
+			{
+				alpha = 1.0f;
+			}
 
-			float newOffset = vehicleExitStartOffset + (vehicleExitTargetOffset - vehicleExitStartOffset) * t;
-			GetVR()->SetYawOffset(newOffset);
+			vr->SetYawOffset(vr->GetYawOffset() + residual * alpha);
 		}
 
 		bInVehicle = bNewShowViewModel;
@@ -1126,6 +1147,8 @@ void Game::SetupConfigs()
 	c_VehicleFaceAimBlend = config.RegisterFloat("VehicleFaceAimBlend", "How much head-aim vs stick contributes in vehicles (0 = pure stick, 1 = pure head aim)", 0.8f);
 	c_VehicleFaceAimSmoothing = config.RegisterFloat("VehicleFaceAimSmoothing", "Smoothing applied to vehicle head-aim (0 = instant, 0.5 = moderate, 0.9 = heavy lag)", 0.4f);
 	c_VehicleFaceAimSpeed = config.RegisterFloat("VehicleFaceAimSpeed", "How quickly vehicle head-aim follows your head. Higher is faster/snappier", 7.0f);
+	c_VehicleExitBlendDuration = config.RegisterFloat("VehicleExitBlendDuration", "How long in seconds the camera correction runs for after leaving a vehicle", 0.35f);
+	c_VehicleExitBlendRate = config.RegisterFloat("VehicleExitBlendRate", "How strongly the camera is corrected after leaving a vehicle. Higher settles faster but is more abrupt", 8.0f);
 	c_StabiliseCutsceneCamera = config.RegisterBool("StabiliseCutsceneCamera", "EXPERIMENTAL. Stop injecting VR camera corrections during cutscenes. The cinematic script drives the camera, so correcting towards the headset fights it and can cause the view to oscillate", false);
 	c_ToggleGrip = config.RegisterBool("ToggleGrip", "When true releasing two handed weapons requires pressing the grip action again", false);
 	c_TwoHandDistance = config.RegisterFloat("TwoHandDistance", "Maximum distance between both hands where the off hand grip action will enable two handed aiming (<0 for any distance)", 0.8f);

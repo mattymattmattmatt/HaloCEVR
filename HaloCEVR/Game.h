@@ -190,9 +190,7 @@ protected:
 
 	bool bInVehicle = false;
 	// Vehicle-to-foot camera exit blend state
-	float vehicleExitBlendT = 0.0f;      // counts 1 -> 0 while blending
-	float vehicleExitStartOffset = 0.0f;
-	float vehicleExitTargetOffset = 0.0f;
+	float vehicleExitBlendT = 0.0f;      // counts 1 -> 0 while the correction window is open
 	bool bHasWeapon = true;
 
 	ERenderState mirrorSource;
@@ -231,6 +229,8 @@ public:
 	FloatProperty* c_VehicleFaceAimSmoothing = nullptr;
 	FloatProperty* c_VehicleFaceAimSpeed = nullptr;
 	BoolProperty* c_StabiliseCutsceneCamera = nullptr;
+	FloatProperty* c_VehicleExitBlendDuration = nullptr;
+	FloatProperty* c_VehicleExitBlendRate = nullptr;
 	BoolProperty* c_OffhandHandFlashlight = nullptr;
 	FloatProperty* c_LeftHandFlashlightDistance = nullptr;
 	FloatProperty* c_RightHandFlashlightDistance = nullptr;
