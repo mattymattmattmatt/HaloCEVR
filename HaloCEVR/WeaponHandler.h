@@ -24,6 +24,7 @@ enum class WeaponType
 class WeaponHandler
 {
 public:
+	bool IsCurrentWeaponOneHanded() const;
 	void UpdateViewModel(struct HaloID& id, struct Vector3* pos, struct Vector3* facing, struct Vector3* up, struct TransformQuat* boneTransforms, struct Transform* outBoneTransforms);
 	void HandlePlasmaPistolCharge();
 	void SetPlasmaPistolCharge();
@@ -43,7 +44,7 @@ public:
 	Vector3 localRotation;
 
 protected:
-	void RelocatePlayer(HaloID& PlayerID);
+	void RelocatePlayer(HaloID& PlayerID, bool bUseOffHand = false);
 
 	inline void CalculateBoneTransform(int boneIndex, struct Bone* boneArray, struct Transform& root, struct TransformQuat* boneTransforms, struct Transform& outTransform) const;
 	inline void CalculateHandTransform(Vector3* pos, Matrix4& handTransform) const;
@@ -58,6 +59,7 @@ protected:
 	inline Vector3 GetScopeLocation(WeaponType Type) const;
 
 	Matrix4 GetDominantHandTransform() const;
+	Matrix4 GetOffHandTransform() const;
 
 	struct ViewModelCache
 	{
@@ -73,7 +75,7 @@ protected:
 		Matrix3 fireRotation;
 		WeaponType weaponType = WeaponType::Unknown;
 		bool IsShooting = false;
-		
+
 	} cachedViewModel;
 
 	UnitDynamicObject* weaponFiredPlayer = nullptr;
@@ -93,4 +95,3 @@ protected:
 	mutable Vector3 lastFireAim;
 #endif
 };
-

@@ -22,6 +22,8 @@ enum class ERenderState { UNKNOWN, LEFT_EYE, RIGHT_EYE, GAME, SCOPE};
 class Game
 {
 public:
+	// Whether the currently equipped weapon is a one handed weapon (pistol, plasma pistol, plasma rifle or needler)
+	bool IsCurrentWeaponOneHanded() const;
 	static Game instance;
 
 	void Init();
@@ -225,6 +227,7 @@ public:
 	FloatProperty* c_HorizontalVehicleTurnAmount = nullptr;
 	FloatProperty* c_VerticalVehicleTurnAmount = nullptr;
 	BoolProperty* c_VehicleFaceAim = nullptr;
+	BoolProperty* c_DisableTwoHandForOneHanded = nullptr;
 	FloatProperty* c_VehicleFaceAimBlend = nullptr;
 	FloatProperty* c_VehicleFaceAimSmoothing = nullptr;
 	FloatProperty* c_VehicleFaceAimSpeed = nullptr;

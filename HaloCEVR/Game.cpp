@@ -579,6 +579,11 @@ void Game::PostDrawFrame(struct Renderer* renderer, float deltaTime)
 #endif
 }
 
+bool Game::IsCurrentWeaponOneHanded() const
+{
+	return weaponHandler.IsCurrentWeaponOneHanded();
+}
+
 bool Game::PreDrawHUD()
 {
 	VR_PROFILE_SCOPE(Game_PreDrawHUD);
@@ -1144,6 +1149,7 @@ void Game::SetupConfigs()
 	c_HorizontalVehicleTurnAmount = config.RegisterFloat("HorizontalVehicleTurnAmount", "Rotation in degrees per second the view will turn horizontally when in vehicles (<0 to invert)", 90.0f);
 	c_VerticalVehicleTurnAmount = config.RegisterFloat("VerticalVehicleTurnAmount", "Rotation in degrees per second the view will turn vertically when in vehicles (<0 to invert)", 45.0f);
 	c_VehicleFaceAim = config.RegisterBool("VehicleFaceAim", "EXPERIMENTAL. When true, vehicle aiming tracks where your head is looking, blended with the stick. Off by default", false);
+	c_DisableTwoHandForOneHanded = config.RegisterBool("DisableTwoHandForOneHanded", "Prevent the two hand grip from activating while holding a one handed weapon (pistol, plasma pistol, plasma rifle or needler), which has no real two handed hold", true);
 	c_VehicleFaceAimBlend = config.RegisterFloat("VehicleFaceAimBlend", "How much head-aim vs stick contributes in vehicles (0 = pure stick, 1 = pure head aim)", 0.8f);
 	c_VehicleFaceAimSmoothing = config.RegisterFloat("VehicleFaceAimSmoothing", "Smoothing applied to vehicle head-aim (0 = instant, 0.5 = moderate, 0.9 = heavy lag)", 0.4f);
 	c_VehicleFaceAimSpeed = config.RegisterFloat("VehicleFaceAimSpeed", "How quickly vehicle head-aim follows your head. Higher is faster/snappier", 7.0f);

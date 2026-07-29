@@ -87,7 +87,7 @@ void WeaponHandler::UpdateViewModel(HaloID& id, Vector3* pos, Vector3* facing, V
 
 		// Apply configurable weapon offset in world space (hot-reloadable)
 		Vector3 configOffset = Game::instance.c_3DOFWeaponOffset->Value();
-        Vector3 weaponOffset = configOffset * Game::instance.MetresToWorld(1.0f);
+		Vector3 weaponOffset = configOffset * Game::instance.MetresToWorld(1.0f);
 		pos->x += weaponOffset.x;
 		pos->y += weaponOffset.y;
 		pos->z += weaponOffset.z;
@@ -226,7 +226,7 @@ void WeaponHandler::UpdateViewModel(HaloID& id, Vector3* pos, Vector3* facing, V
 					0.0f, -1.0f, 0.0f,
 					0.0f, 0.0f, 1.0f
 				);
-				
+
 				for (int i = 0; i < 9; i++)
 				{
 					tempTransform.rotation[i] = rot[i];
@@ -352,7 +352,7 @@ void WeaponHandler::UpdateViewModel(HaloID& id, Vector3* pos, Vector3* facing, V
 					}
 
 					CreateEndCap(boneIndex, currentBone, outBoneTransforms);
-				}				
+				}
 			}
 			else if (boneIndex == cachedViewModel.gunIndex)
 			{
@@ -391,7 +391,7 @@ void WeaponHandler::UpdateViewModel(HaloID& id, Vector3* pos, Vector3* facing, V
 					cachedViewModel.gunOffset = inverseHand * cachedViewModel.gunOffset;
 
 					cachedViewModel.fireRotation = cachedViewModel.cookedFireRotation * gunRot * inverseHand;
-				}				
+				}
 			}
 
 #if DRAW_DEBUG_AIM
@@ -429,7 +429,7 @@ inline void WeaponHandler::CalculateBoneTransform(int boneIndex, Bone* boneArray
 	}
 
 	int currentIndex = boneIndex;
-	
+
 	while (true)
 	{
 		Bone& currentBone = boneArray[currentIndex];
@@ -759,7 +759,7 @@ Matrix4 WeaponHandler::GetDominantHandTransform() const
 	Matrix4 controllerTransform;
 	Vector3 actualControllerPos;
 	Vector3 toOffHand;
-	Vector3 smoothedPosition; 
+	Vector3 smoothedPosition;
 
 	if (!Game::instance.GetCalculatedHandPositions(controllerTransform, actualControllerPos, toOffHand))
 	{
@@ -799,6 +799,25 @@ Matrix4 WeaponHandler::GetDominantHandTransform() const
 
 	controllerTransform *= cachedRot4.invertAffine();
 	return controllerTransform;
+}
+
+Matrix4 WeaponHandler::GetOffHandTransform() const
+{
+	// Pure off-hand controller pose (no two-hand lookAt, no gun fireRotation)
+	ControllerRole offHand = Game::instance.bLeftHanded
+		? ControllerRole::Right
+		: ControllerRole::Left;
+
+	Matrix4 t = Game::instance.GetVR()->GetControllerTransform(offHand, true);
+
+	// Same translation-scale treatment used by CalculateHandTransform / RelocatePlayer
+	Vector3 translation = t * Vector3(0.0f, 0.0f, 0.0f);
+	t.translate(-translation);
+	translation *= Game::instance.MetresToWorld(1.0f);
+	// final + player position is applied inside RelocatePlayer
+	t.translate(translation);
+
+	return t;
 }
 
 bool WeaponHandler::GetLocalWeaponAim(Vector3& outPosition, Vector3& outAim, Vector3& upDir) const
@@ -958,14 +977,31 @@ bool WeaponHandler::IsSniperScope() const
 	return cachedViewModel.weaponType == WeaponType::Sniper;
 }
 
-void WeaponHandler::RelocatePlayer(HaloID& PlayerID)
+bool WeaponHandler::IsCurrentWeaponOneHanded() const
+{
+	// Weapons held and fired one handed in stock Halo, as opposed to weapons
+	// braced/held with both hands (assault rifle, shotgun, sniper, etc.)
+	switch (cachedViewModel.weaponType)
+	{
+	case WeaponType::Pistol:
+	case WeaponType::PlasmaPistol:
+	case WeaponType::PlasmaRifle:
+	case WeaponType::Needler:
+		return true;
+	default:
+		return false;
+	}
+}
+
+void WeaponHandler::RelocatePlayer(HaloID& PlayerID, bool bUseOffHand)
 {
 	// Teleport the player to the controller position so the bullet comes from there instead
 	weaponFiredPlayer = static_cast<UnitDynamicObject*>(Helpers::GetDynamicObject(PlayerID));
 	if (weaponFiredPlayer)
 	{
-		// TODO: Handedness
-		Matrix4 controllerPos = GetDominantHandTransform();
+		Matrix4 controllerPos = bUseOffHand
+			? GetOffHandTransform()
+			: GetDominantHandTransform();
 
 		// Apply scale only to translation portion
 		Vector3 translation = controllerPos * Vector3(0.0f, 0.0f, 0.0f);
@@ -989,20 +1025,30 @@ void WeaponHandler::RelocatePlayer(HaloID& PlayerID)
 		realPlayerPosition = weaponFiredPlayer->position;
 		realPlayerAim = weaponFiredPlayer->aim;
 
-		if (Game::instance.bUse3DOFAiming)
+		if (bUseOffHand)
+		{
+			// Grenade from free off-hand: pure hand pose, no gun barrel offsets
+			weaponFiredPlayer->position = handPos;
+
+			// Small yaw offset so the throw aims out the front of the controller
+			// (raw controller forward was ~10° left of straight)
+			Matrix4 aimOffset;
+			aimOffset.rotate(-10.0f, handRotation3.getColumn(2)); // yaw around hand up
+			Matrix3 offsetRot;
+			for (int i = 0; i < 3; i++)
+				offsetRot.setColumn(i, &aimOffset.get()[i * 4]);
+
+			weaponFiredPlayer->aim = (offsetRot * handRotation3) * Vector3(1.0f, 0.0f, 0.0f);
+		}
+		else if (Game::instance.bUse3DOFAiming)
 		{
 			// 3DOF MODE: Bullets originate from HMD (user's eyes)
-			// Get HMD position in VR space
 			Matrix4 hmdTransform = Game::instance.GetVR()->GetHMDTransform(true);
 			Vector3 hmdPos = hmdTransform * Vector3(0.0f, 0.0f, 0.0f);
 
-			// Convert to game world units and add to player base position
 			Vector3 hmdPosWorld = hmdPos * Game::instance.MetresToWorld(1.0f);
 			weaponFiredPlayer->position = realPlayerPosition + hmdPosWorld;
 
-			// Aim direction uses controller rotation directly
-			// Note: fireRotation is NOT updated in 3DOF mode (skipped in UpdateViewModel),
-			// so we use handRotation3 directly for aim direction
 			weaponFiredPlayer->aim = handRotation3 * Vector3(1.0f, 0.0f, 0.0f);
 		}
 		else
@@ -1070,7 +1116,7 @@ void WeaponHandler::HandlePlasmaPistolCharge()
 inline void WeaponHandler::HandleWeaponHaptics() const
 {
 	IVR* vr = Game::instance.GetVR();
-	
+
 	if (cachedViewModel.weaponType != WeaponType::Unknown)
 	{
 		WeaponHapticsConfigManager hapticsManager = Game::instance.weaponHapticsConfig;
@@ -1082,7 +1128,7 @@ inline void WeaponHandler::HandleWeaponHaptics() const
 
 		ControllerRole dominantHand = ControllerRole::Right;
 		ControllerRole nondominantHand = ControllerRole::Left;
-		
+
 		if (Game::instance.bLeftHanded)
 		{
 #if HAPTICS_DEBUG
@@ -1109,7 +1155,7 @@ inline void WeaponHandler::HandleWeaponHaptics() const
 			hapticsManager.HandleWeaponHaptics(vr, dominantHand, dominantHaptics);
 			hapticsManager.HandleWeaponHaptics(vr, nondominantHand, nondominantHaptics);
 		}
-		else 
+		else
 		{
 #if HAPTICS_DEBUG
 			Logger::log << "[Weapon Haptics] Gun is in one handed mode. " << haptic.Description << std::endl;
@@ -1143,7 +1189,7 @@ void WeaponHandler::PreThrowGrenade(HaloID& playerID)
 	HaloID PlayerID;
 	if (Helpers::GetLocalPlayerID(PlayerID) && PlayerID == playerID)
 	{
-		RelocatePlayer(PlayerID);
+		RelocatePlayer(PlayerID, /*bUseOffHand=*/true);
 	}
 }
 

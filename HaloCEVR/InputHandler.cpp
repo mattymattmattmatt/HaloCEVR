@@ -837,6 +837,15 @@ void InputHandler::UpdateTwoHandedHold(float handDistance, bool handsWithinSwapW
 		return;
 	}
 
+	// Optionally disable two hand grip for one handed weapons (pistol/plasma
+	// pistol), where there is no real two handed hold to switch to.
+	if (Game::instance.c_DisableTwoHandForOneHanded->Value()
+		&& Game::instance.IsCurrentWeaponOneHanded())
+	{
+		Game::instance.bUseTwoHandAim = false;
+		return;
+	}
+
 	IVR* vr = Game::instance.GetVR();
 
 	bool bGripChanged;
