@@ -91,7 +91,20 @@ void InputHandler::UpdateInputs(bool bInVehicle)
 		ApplyBoolInput(Interact);
 		ApplyBoolInput(Melee);
 		ApplyBoolInput(Flashlight);
-		ApplyBoolInput(Grenade);
+		if (Game::instance.c_ThrowGrenadeOnRelease->Value())
+		{
+			// Throw on release: track the raw held state ourselves and only report
+			// a press (127) to the game on the frame the button is released, so the
+			// engine's own press-triggered throw fires at release instead of pull.
+			bool bGrenadeHeldNow = vr->GetBoolInput(Grenade);
+			bool bReleasedThisFrame = bWasGrenadeHeld && !bGrenadeHeldNow;
+			controls.Grenade = bReleasedThisFrame ? 127 : 0;
+			bWasGrenadeHeld = bGrenadeHeldNow;
+		}
+		else
+		{
+			ApplyBoolInput(Grenade);
+		}
 		ApplyBoolInput(Fire);
 		ApplyBoolInput(MenuForward);
 		ApplyBoolInput(MenuBack);
@@ -110,7 +123,20 @@ void InputHandler::UpdateInputs(bool bInVehicle)
 		ApplyBoolInput(Interact);
 		ApplyBoolInput(Melee);
 		ApplyBoolInput(Flashlight);
-		ApplyBoolInput(Grenade);
+		if (Game::instance.c_ThrowGrenadeOnRelease->Value())
+		{
+			// Throw on release: track the raw held state ourselves and only report
+			// a press (127) to the game on the frame the button is released, so the
+			// engine's own press-triggered throw fires at release instead of pull.
+			bool bGrenadeHeldNow = vr->GetBoolInput(Grenade);
+			bool bReleasedThisFrame = bWasGrenadeHeld && !bGrenadeHeldNow;
+			controls.Grenade = bReleasedThisFrame ? 127 : 0;
+			bWasGrenadeHeld = bGrenadeHeldNow;
+		}
+		else
+		{
+			ApplyBoolInput(Grenade);
+		}
 		ApplyBoolInput(Fire);
 		ApplyBoolInput(MenuForward);
 		ApplyBoolInput(MenuBack);

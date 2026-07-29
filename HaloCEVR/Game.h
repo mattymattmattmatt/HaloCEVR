@@ -228,6 +228,7 @@ public:
 	FloatProperty* c_VerticalVehicleTurnAmount = nullptr;
 	BoolProperty* c_VehicleFaceAim = nullptr;
 	BoolProperty* c_DisableTwoHandForOneHanded = nullptr;
+	BoolProperty* c_ThrowGrenadeOnRelease = nullptr;
 	FloatProperty* c_VehicleFaceAimBlend = nullptr;
 	FloatProperty* c_VehicleFaceAimSmoothing = nullptr;
 	FloatProperty* c_VehicleFaceAimSpeed = nullptr;

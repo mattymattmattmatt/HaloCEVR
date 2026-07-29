@@ -47,6 +47,7 @@ protected:
 	bool bWasGripping = false;
 	bool bWasSwappingHands = false;
 	bool bWasTappingHUD = false;
+	bool bWasGrenadeHeld = false;
 	bool bWasTogglingCrosshair = false;
 	
 	InputBindingID Jump = 0;
