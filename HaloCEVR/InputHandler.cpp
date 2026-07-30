@@ -96,10 +96,43 @@ void InputHandler::UpdateInputs(bool bInVehicle)
 			// Throw on release: track the raw held state ourselves and only report
 			// a press (127) to the game on the frame the button is released, so the
 			// engine's own press-triggered throw fires at release instead of pull.
-			bool bGrenadeHeldNow = vr->GetBoolInput(Grenade);
-			bool bReleasedThisFrame = bWasGrenadeHeld && !bGrenadeHeldNow;
-			controls.Grenade = bReleasedThisFrame ? 127 : 0;
-			bWasGrenadeHeld = bGrenadeHeldNow;
+			//
+			// The underlying SteamVR digital action can flicker (bChanged firing
+			// repeatedly) during what is physically one continuous hold, so the raw
+			// signal is debounced: a release only counts once the button has read
+			// as not-held for a short window, not on the very first 0 frame.
+			bool bGrenadeRawHeld = vr->GetBoolInput(Grenade);
+
+			if (bGrenadeRawHeld)
+			{
+				grenadeReleaseTimer = 0.0f;
+				bWasGrenadeHeld = true;
+			}
+			else if (bWasGrenadeHeld)
+			{
+				grenadeReleaseTimer += Game::instance.lastDeltaTime;
+			}
+
+			const float debounceTime = 0.08f; // ~5 frames at 60fps
+			bool bReleasedThisFrame = bWasGrenadeHeld && !bGrenadeRawHeld && grenadeReleaseTimer >= debounceTime;
+
+			// Hold the throw pulse for a couple of frames rather than exactly one,
+			// so it cannot land on a frame the engine happens not to poll cleanly.
+			if (bReleasedThisFrame)
+			{
+				bWasGrenadeHeld = false;
+				grenadeThrowPulseFrames = 3;
+			}
+
+			if (grenadeThrowPulseFrames > 0)
+			{
+				controls.Grenade = 127;
+				grenadeThrowPulseFrames--;
+			}
+			else
+			{
+				controls.Grenade = 0;
+			}
 		}
 		else
 		{
@@ -128,10 +161,43 @@ void InputHandler::UpdateInputs(bool bInVehicle)
 			// Throw on release: track the raw held state ourselves and only report
 			// a press (127) to the game on the frame the button is released, so the
 			// engine's own press-triggered throw fires at release instead of pull.
-			bool bGrenadeHeldNow = vr->GetBoolInput(Grenade);
-			bool bReleasedThisFrame = bWasGrenadeHeld && !bGrenadeHeldNow;
-			controls.Grenade = bReleasedThisFrame ? 127 : 0;
-			bWasGrenadeHeld = bGrenadeHeldNow;
+			//
+			// The underlying SteamVR digital action can flicker (bChanged firing
+			// repeatedly) during what is physically one continuous hold, so the raw
+			// signal is debounced: a release only counts once the button has read
+			// as not-held for a short window, not on the very first 0 frame.
+			bool bGrenadeRawHeld = vr->GetBoolInput(Grenade);
+
+			if (bGrenadeRawHeld)
+			{
+				grenadeReleaseTimer = 0.0f;
+				bWasGrenadeHeld = true;
+			}
+			else if (bWasGrenadeHeld)
+			{
+				grenadeReleaseTimer += Game::instance.lastDeltaTime;
+			}
+
+			const float debounceTime = 0.08f; // ~5 frames at 60fps
+			bool bReleasedThisFrame = bWasGrenadeHeld && !bGrenadeRawHeld && grenadeReleaseTimer >= debounceTime;
+
+			// Hold the throw pulse for a couple of frames rather than exactly one,
+			// so it cannot land on a frame the engine happens not to poll cleanly.
+			if (bReleasedThisFrame)
+			{
+				bWasGrenadeHeld = false;
+				grenadeThrowPulseFrames = 3;
+			}
+
+			if (grenadeThrowPulseFrames > 0)
+			{
+				controls.Grenade = 127;
+				grenadeThrowPulseFrames--;
+			}
+			else
+			{
+				controls.Grenade = 0;
+			}
 		}
 		else
 		{

@@ -48,6 +48,8 @@ protected:
 	bool bWasSwappingHands = false;
 	bool bWasTappingHUD = false;
 	bool bWasGrenadeHeld = false;
+	float grenadeReleaseTimer = 0.0f;
+	int grenadeThrowPulseFrames = 0;
 	bool bWasTogglingCrosshair = false;
 	
 	InputBindingID Jump = 0;
