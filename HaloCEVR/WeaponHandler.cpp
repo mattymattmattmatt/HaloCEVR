@@ -1274,6 +1274,17 @@ void WeaponHandler::PostThrowGrenade(HaloID& playerID)
 	}
 
 #if GRENADE_VELOCITY_DEBUG
+	// H_ThrowGrenade is a global engine hook: it fires for ANY unit's grenade
+	// throw, not just the player's (enemy AI grenades hit this exact same hook).
+	// PreThrowGrenade already gates the relocation on this being the local
+	// player's throw; the diagnostic scan below must do the same, or it dumps
+	// data for every enemy grenade thrown nearby against a stale or default
+	// lastGrenadeThrowOrigin, which is what produced the confusing log so far.
+	HaloID localPlayerID;
+	bool bIsLocalPlayerThrow = Helpers::GetLocalPlayerID(localPlayerID) && localPlayerID == playerID;
+
+	if (bIsLocalPlayerThrow)
+	{
 	// ONE-OFF DIAGNOSTIC. Rather than guess at an object field's meaning to spot a
 	// freshly spawned grenade, log every live object ranked by distance to the
 	// known throw origin captured in RelocatePlayer above. Whichever object is
@@ -1313,6 +1324,7 @@ void WeaponHandler::PostThrowGrenade(HaloID& playerID)
 	{
 		Logger::log << "[GrenadeVelocity] no objects found within 5m of throw origin "
 			<< lastGrenadeThrowOrigin << std::endl;
+	}
 	}
 #endif
 }
