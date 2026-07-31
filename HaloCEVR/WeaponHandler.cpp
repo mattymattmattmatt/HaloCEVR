@@ -1096,6 +1096,11 @@ void WeaponHandler::RelocatePlayer(HaloID& PlayerID, bool bUseOffHand)
 			// Grenade from free off-hand: pure hand pose, no gun barrel offsets
 			weaponFiredPlayer->position = handPos;
 
+#define GRENADE_VELOCITY_DEBUG 1
+#if GRENADE_VELOCITY_DEBUG
+			lastGrenadeThrowOrigin = handPos;
+#endif
+
 			// Small yaw offset so the throw aims out the front of the controller
 			// (raw controller forward was ~10° left of straight)
 			Matrix4 aimOffset;
@@ -1267,4 +1272,47 @@ void WeaponHandler::PostThrowGrenade(HaloID& playerID)
 		weaponFiredPlayer->aim = realPlayerAim;
 		weaponFiredPlayer = nullptr;
 	}
+
+#if GRENADE_VELOCITY_DEBUG
+	// ONE-OFF DIAGNOSTIC. Rather than guess at an object field's meaning to spot a
+	// freshly spawned grenade, log every live object ranked by distance to the
+	// known throw origin captured in RelocatePlayer above. Whichever object is
+	// closest, with a sensible velocity, is almost certainly the thrown grenade.
+	// Not meant to run every throw in normal play.
+	ObjectTable& table = Helpers::GetObjectTable();
+	int loggedCount = 0;
+
+	for (uint16_t i = 0; i < table.currentSize && loggedCount < 5; i++)
+	{
+		ObjectDatum& datum = table.elements[i];
+		if (!datum.dynamicObject)
+		{
+			continue;
+		}
+
+		BaseDynamicObject* obj = datum.dynamicObject;
+		float distance = (obj->position - lastGrenadeThrowOrigin).length();
+
+		// Only log things plausibly close to the throw point, to keep the log
+		// readable rather than dumping every object in the level every throw
+		if (distance < 5.0f)
+		{
+			Logger::log << "[GrenadeVelocity] slot=" << i
+				<< " distFromThrowOrigin=" << distance
+				<< " age=" << obj->age
+				<< " tagID=" << obj->tagID.id
+				<< " position=" << obj->position
+				<< " velocity=" << obj->velocity
+				<< " speed=" << obj->velocity.length()
+				<< std::endl;
+			loggedCount++;
+		}
+	}
+
+	if (loggedCount == 0)
+	{
+		Logger::log << "[GrenadeVelocity] no objects found within 5m of throw origin "
+			<< lastGrenadeThrowOrigin << std::endl;
+	}
+#endif
 }

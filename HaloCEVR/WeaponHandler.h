@@ -27,6 +27,9 @@ public:
 	bool IsCurrentWeaponOneHanded() const;
 	// Origin and aim direction a thrown grenade will actually use, in world space
 	bool GetGrenadeThrowPose(struct Vector3& outPos, struct Vector3& outAim) const;
+
+	// One-off diagnostic state, see GRENADE_VELOCITY_DEBUG in WeaponHandler.cpp
+	struct Vector3 lastGrenadeThrowOrigin;
 	void UpdateViewModel(struct HaloID& id, struct Vector3* pos, struct Vector3* facing, struct Vector3* up, struct TransformQuat* boneTransforms, struct Transform* outBoneTransforms);
 	void HandlePlasmaPistolCharge();
 	void SetPlasmaPistolCharge();
