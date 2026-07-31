@@ -25,6 +25,8 @@ class WeaponHandler
 {
 public:
 	bool IsCurrentWeaponOneHanded() const;
+	// Origin and aim direction a thrown grenade will actually use, in world space
+	bool GetGrenadeThrowPose(struct Vector3& outPos, struct Vector3& outAim) const;
 	void UpdateViewModel(struct HaloID& id, struct Vector3* pos, struct Vector3* facing, struct Vector3* up, struct TransformQuat* boneTransforms, struct Transform* outBoneTransforms);
 	void HandlePlasmaPistolCharge();
 	void SetPlasmaPistolCharge();

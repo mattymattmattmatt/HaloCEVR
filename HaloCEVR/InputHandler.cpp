@@ -74,6 +74,12 @@ Vector2 RotateVector2(const Vector2& v, float angle)
 
 #define DRAW_DEBUG_MOVE 0
 
+bool InputHandler::IsGrenadeHeld() const
+{
+	IVR* vr = Game::instance.GetVR();
+	return vr && vr->GetBoolInput(Grenade);
+}
+
 void InputHandler::UpdateInputs(bool bInVehicle)
 {
 	IVR* vr = Game::instance.GetVR();

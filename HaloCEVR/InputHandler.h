@@ -8,6 +8,8 @@ public:
 	void RegisterInputs();
 	void UpdateRegisteredInputs();
 	void UpdateInputs(bool bInVehicle);
+	// Raw held state of the grenade action, regardless of throw-on-release setting
+	bool IsGrenadeHeld() const;
 	void UpdateCamera(float& yaw, float& pitch);
 	void UpdateCameraForVehicles(float& yaw, float& pitch);
 	void SetMousePosition(int& x, int& y);

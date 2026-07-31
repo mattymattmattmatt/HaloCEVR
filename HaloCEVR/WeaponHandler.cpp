@@ -993,6 +993,68 @@ bool WeaponHandler::IsCurrentWeaponOneHanded() const
 	}
 }
 
+bool WeaponHandler::GetGrenadeThrowPose(Vector3& outPos, Vector3& outAim) const
+{
+	HaloID playerID;
+	if (!Helpers::GetLocalPlayerID(playerID))
+	{
+		return false;
+	}
+
+	UnitDynamicObject* player = static_cast<UnitDynamicObject*>(Helpers::GetDynamicObject(playerID));
+	if (!player)
+	{
+		return false;
+	}
+
+	// Mirrors the off hand branch of RelocatePlayer to get the hand pose relative
+	// to the player, so the drawn arc starts from and points along what the thrown
+	// grenade will actually use. If that calculation changes, this must change too.
+	Matrix4 controllerPos = GetOffHandTransform();
+
+	Vector3 translation = controllerPos * Vector3(0.0f, 0.0f, 0.0f);
+	controllerPos.translate(-translation);
+	translation *= Game::instance.MetresToWorld(1.0f);
+	translation += player->position;
+	controllerPos.translate(translation);
+
+	Vector3 handPos = controllerPos * Vector3(0.0f, 0.0f, 0.0f);
+	Matrix4 handRotation = controllerPos.translate(-handPos);
+
+	Matrix3 handRotation3;
+	for (int i = 0; i < 3; i++)
+	{
+		handRotation3.setColumn(i, &handRotation.get()[i * 4]);
+	}
+
+	Matrix4 aimOffset;
+	aimOffset.rotate(-10.0f, handRotation3.getColumn(2));
+	Matrix3 offsetRot;
+	for (int i = 0; i < 3; i++)
+	{
+		offsetRot.setColumn(i, &aimOffset.get()[i * 4]);
+	}
+
+	// handPos was computed relative to player->position, which is Halo's internal
+	// game logic position and not necessarily the same coordinate space the
+	// renderer draws in this frame. Other working per-frame world drawing in this
+	// file (Game::DrawGrenadeArc's sibling, ShowRoomCentre) anchors on
+	// Helpers::GetCamera().position instead, so re-anchor there to match.
+	Vector3 handRelativeToPlayer = handPos - player->position;
+	outPos = Helpers::GetCamera().position + handRelativeToPlayer;
+	outAim = (offsetRot * handRotation3) * Vector3(1.0f, 0.0f, 0.0f);
+
+#define GRENADE_ARC_DEBUG 0
+#if GRENADE_ARC_DEBUG
+	Logger::log << "[GrenadeArc] player->position=" << player->position
+		<< " handPos=" << handPos
+		<< " camera.position=" << Helpers::GetCamera().position
+		<< " outPos=" << outPos << std::endl;
+#endif
+
+	return true;
+}
+
 void WeaponHandler::RelocatePlayer(HaloID& PlayerID, bool bUseOffHand)
 {
 	// Teleport the player to the controller position so the bullet comes from there instead

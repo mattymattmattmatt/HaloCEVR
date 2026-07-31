@@ -24,6 +24,8 @@ class Game
 public:
 	// Whether the currently equipped weapon is a one handed weapon (pistol, plasma pistol, plasma rifle or needler)
 	bool IsCurrentWeaponOneHanded() const;
+	// Draws the predicted grenade trajectory while the grenade button is held
+	void DrawGrenadeArc();
 	static Game instance;
 
 	void Init();
@@ -229,6 +231,12 @@ public:
 	BoolProperty* c_VehicleFaceAim = nullptr;
 	BoolProperty* c_DisableTwoHandForOneHanded = nullptr;
 	BoolProperty* c_ThrowGrenadeOnRelease = nullptr;
+	BoolProperty* c_ShowGrenadeArc = nullptr;
+	FloatProperty* c_GrenadeArcSpeed = nullptr;
+	FloatProperty* c_GrenadeArcGravity = nullptr;
+	FloatProperty* c_GrenadeArcSeconds = nullptr;
+	IntProperty* c_GrenadeArcSegments = nullptr;
+	BoolProperty* c_GrenadeArcDashed = nullptr;
 	FloatProperty* c_VehicleFaceAimBlend = nullptr;
 	FloatProperty* c_VehicleFaceAimSmoothing = nullptr;
 	FloatProperty* c_VehicleFaceAimSpeed = nullptr;

@@ -277,6 +277,8 @@ void Game::PreDrawFrame(struct Renderer* renderer, float deltaTime)
 		bHasWeapon = Player->weapon.id != 0xffff;
 	}
 
+	DrawGrenadeArc();
+
 	if (c_ShowRoomCentre->Value())
 	{
 		VR_PROFILE_SCOPE(Game_PreDrawFrame_DrawRoomCentre);
@@ -577,6 +579,80 @@ void Game::PostDrawFrame(struct Renderer* renderer, float deltaTime)
 #if USE_PROFILER
 	profiler.NewFrame();
 #endif
+}
+
+void Game::DrawGrenadeArc()
+{
+	if (!c_ShowGrenadeArc->Value() || !inputHandler.IsGrenadeHeld())
+	{
+		return;
+	}
+
+	Vector3 startPos;
+	Vector3 aim;
+	if (!weaponHandler.GetGrenadeThrowPose(startPos, aim))
+	{
+		return;
+	}
+
+	int segments = c_GrenadeArcSegments->Value();
+	if (segments < 2)
+	{
+		segments = 2;
+	}
+
+	const float totalTime = c_GrenadeArcSeconds->Value();
+	const float dt = totalTime / static_cast<float>(segments);
+
+	// Simple ballistic integration. The launch speed and gravity are assumed values
+	// rather than read from the game's own projectile data, so they are exposed as
+	// config and tuned by eye against where grenades actually land.
+	Vector3 velocity = aim * MetresToWorld(c_GrenadeArcSpeed->Value());
+	const float gravityPerStep = MetresToWorld(c_GrenadeArcGravity->Value()) * dt;
+
+	Vector3 pos = startPos;
+
+	// Dashed line: each step alternates between a drawn segment and a gap. Both the
+	// dash and the gap shrink along the arc's length, so the pattern reads as dense
+	// near the hand and sparse further away, similar to teleport arc visuals.
+	const bool bDashed = c_GrenadeArcDashed->Value();
+	bool bDrawThisStep = true;
+	float dashPhaseAccum = 0.0f;
+
+	for (int i = 0; i < segments; i++)
+	{
+		Vector3 nextPos = pos + velocity * dt;
+		velocity.z -= gravityPerStep;
+
+		// Fade the arc out along its length so the far, least reliable end is faintest
+		const float t = static_cast<float>(i) / static_cast<float>(segments);
+		const int alpha = static_cast<int>(200.0f * (1.0f - t)) + 40;
+
+		bool bDraw = true;
+
+		if (bDashed)
+		{
+			// Dash/gap length in "segment units" shrinks from ~2.5 segments near the
+			// hand down to ~0.6 segments at the far end
+			const float dashLength = 2.5f - 1.9f * t;
+
+			dashPhaseAccum += 1.0f;
+			if (dashPhaseAccum >= dashLength)
+			{
+				dashPhaseAccum -= dashLength;
+				bDrawThisStep = !bDrawThisStep;
+			}
+
+			bDraw = bDrawThisStep;
+		}
+
+		if (bDraw)
+		{
+			inGameRenderer.DrawLine3D(pos, nextPos, D3DCOLOR_ARGB(alpha, 90, 220, 255), true, 0.02f);
+		}
+
+		pos = nextPos;
+	}
 }
 
 bool Game::IsCurrentWeaponOneHanded() const
@@ -1151,6 +1227,12 @@ void Game::SetupConfigs()
 	c_VehicleFaceAim = config.RegisterBool("VehicleFaceAim", "EXPERIMENTAL. When true, vehicle aiming tracks where your head is looking, blended with the stick. Off by default", false);
 	c_DisableTwoHandForOneHanded = config.RegisterBool("DisableTwoHandForOneHanded", "Prevent the two hand grip from activating while holding a one handed weapon (pistol, plasma pistol, plasma rifle or needler), which has no real two handed hold", true);
 	c_ThrowGrenadeOnRelease = config.RegisterBool("ThrowGrenadeOnRelease", "Throw the grenade when the grenade button is released, rather than immediately when pressed. Lets you hold the button while winding up the throw motion", false);
+	c_ShowGrenadeArc = config.RegisterBool("ShowGrenadeArc", "Draw a predicted trajectory arc from your throwing hand while the grenade button is held", false);
+	c_GrenadeArcSpeed = config.RegisterFloat("GrenadeArcSpeed", "Assumed grenade launch speed in metres per second for the predicted arc. Tune until the arc matches where grenades actually land", 12.0f);
+	c_GrenadeArcGravity = config.RegisterFloat("GrenadeArcGravity", "Assumed gravity in metres per second squared for the predicted arc. Tune alongside GrenadeArcSpeed", 9.8f);
+	c_GrenadeArcSeconds = config.RegisterFloat("GrenadeArcSeconds", "How many seconds of flight the predicted arc covers", 2.5f);
+	c_GrenadeArcSegments = config.RegisterInt("GrenadeArcSegments", "Number of line segments used to draw the predicted arc. Higher is smoother", 40);
+	c_GrenadeArcDashed = config.RegisterBool("GrenadeArcDashed", "Draw the grenade arc as a dashed line, with dashes shrinking towards the far end, rather than a solid line", true);
 	c_VehicleFaceAimBlend = config.RegisterFloat("VehicleFaceAimBlend", "How much head-aim vs stick contributes in vehicles (0 = pure stick, 1 = pure head aim)", 0.8f);
 	c_VehicleFaceAimSmoothing = config.RegisterFloat("VehicleFaceAimSmoothing", "Smoothing applied to vehicle head-aim (0 = instant, 0.5 = moderate, 0.9 = heavy lag)", 0.4f);
 	c_VehicleFaceAimSpeed = config.RegisterFloat("VehicleFaceAimSpeed", "How quickly vehicle head-aim follows your head. Higher is faster/snappier", 7.0f);
