@@ -279,6 +279,8 @@ void Game::PreDrawFrame(struct Renderer* renderer, float deltaTime)
 
 	DrawGrenadeArc();
 
+	UpdateGrenadeVelocityScan();
+
 	if (c_ShowRoomCentre->Value())
 	{
 		VR_PROFILE_SCOPE(Game_PreDrawFrame_DrawRoomCentre);
@@ -656,6 +658,11 @@ void Game::DrawGrenadeArc()
 
 		pos = nextPos;
 	}
+}
+
+void Game::UpdateGrenadeVelocityScan()
+{
+	weaponHandler.UpdateGrenadeVelocityScan();
 }
 
 bool Game::IsCurrentWeaponOneHanded() const

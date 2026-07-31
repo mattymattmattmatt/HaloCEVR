@@ -1277,23 +1277,43 @@ void WeaponHandler::PostThrowGrenade(HaloID& playerID)
 	// H_ThrowGrenade is a global engine hook: it fires for ANY unit's grenade
 	// throw, not just the player's (enemy AI grenades hit this exact same hook).
 	// PreThrowGrenade already gates the relocation on this being the local
-	// player's throw; the diagnostic scan below must do the same, or it dumps
-	// data for every enemy grenade thrown nearby against a stale or default
-	// lastGrenadeThrowOrigin, which is what produced the confusing log so far.
+	// player's throw; this must do the same, or it triggers on every enemy
+	// grenade thrown nearby too.
 	HaloID localPlayerID;
 	bool bIsLocalPlayerThrow = Helpers::GetLocalPlayerID(localPlayerID) && localPlayerID == playerID;
 
 	if (bIsLocalPlayerThrow)
 	{
-	// ONE-OFF DIAGNOSTIC. Rather than guess at an object field's meaning to spot a
-	// freshly spawned grenade, log every live object ranked by distance to the
-	// known throw origin captured in RelocatePlayer above. Whichever object is
-	// closest, with a sensible velocity, is almost certainly the thrown grenade.
-	// Not meant to run every throw in normal play.
+		// A single scan immediately after the throw call returns found nothing
+		// resembling an in-flight grenade across 8 real throws: the closest match
+		// was always the player themselves, and everything else was static level
+		// geometry at fixed positions unrelated to the throw. The likely cause is
+		// that the projectile is not yet created in the object table at that exact
+		// instant. Instead of one scan, run the scan every frame for a short
+		// window afterwards and compare positions across frames: a real thrown
+		// grenade should visibly move frame to frame at a plausible speed, static
+		// geometry will not, regardless of exactly when the projectile spawns.
+		grenadeVelocityScanFramesRemaining = 20;
+		grenadeVelocityScanIndex = 0;
+	}
+#endif
+}
+
+#if GRENADE_VELOCITY_DEBUG
+void WeaponHandler::UpdateGrenadeVelocityScan()
+{
+	if (grenadeVelocityScanFramesRemaining <= 0)
+	{
+		return;
+	}
+
+	grenadeVelocityScanFramesRemaining--;
+	grenadeVelocityScanIndex++;
+
 	ObjectTable& table = Helpers::GetObjectTable();
 	int loggedCount = 0;
 
-	for (uint16_t i = 0; i < table.currentSize && loggedCount < 5; i++)
+	for (uint16_t i = 0; i < table.currentSize && loggedCount < 8; i++)
 	{
 		ObjectDatum& datum = table.elements[i];
 		if (!datum.dynamicObject)
@@ -1304,13 +1324,11 @@ void WeaponHandler::PostThrowGrenade(HaloID& playerID)
 		BaseDynamicObject* obj = datum.dynamicObject;
 		float distance = (obj->position - lastGrenadeThrowOrigin).length();
 
-		// Only log things plausibly close to the throw point, to keep the log
-		// readable rather than dumping every object in the level every throw
-		if (distance < 5.0f)
+		if (distance < 8.0f)
 		{
-			Logger::log << "[GrenadeVelocity] slot=" << i
-				<< " distFromThrowOrigin=" << distance
-				<< " age=" << obj->age
+			Logger::log << "[GrenadeVelocityScan] frame=" << grenadeVelocityScanIndex
+				<< " slot=" << i
+				<< " dist=" << distance
 				<< " tagID=" << obj->tagID.id
 				<< " position=" << obj->position
 				<< " velocity=" << obj->velocity
@@ -1319,12 +1337,5 @@ void WeaponHandler::PostThrowGrenade(HaloID& playerID)
 			loggedCount++;
 		}
 	}
-
-	if (loggedCount == 0)
-	{
-		Logger::log << "[GrenadeVelocity] no objects found within 5m of throw origin "
-			<< lastGrenadeThrowOrigin << std::endl;
-	}
-	}
-#endif
 }
+#endif

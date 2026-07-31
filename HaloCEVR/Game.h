@@ -24,6 +24,8 @@ class Game
 public:
 	// Whether the currently equipped weapon is a one handed weapon (pistol, plasma pistol, plasma rifle or needler)
 	bool IsCurrentWeaponOneHanded() const;
+	// Debug-only, see GRENADE_VELOCITY_DEBUG in WeaponHandler.cpp
+	void UpdateGrenadeVelocityScan();
 	// Draws the predicted grenade trajectory while the grenade button is held
 	void DrawGrenadeArc();
 	static Game instance;

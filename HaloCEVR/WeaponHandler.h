@@ -30,6 +30,9 @@ public:
 
 	// One-off diagnostic state, see GRENADE_VELOCITY_DEBUG in WeaponHandler.cpp
 	struct Vector3 lastGrenadeThrowOrigin;
+	int grenadeVelocityScanFramesRemaining = 0;
+	int grenadeVelocityScanIndex = 0;
+	void UpdateGrenadeVelocityScan();
 	void UpdateViewModel(struct HaloID& id, struct Vector3* pos, struct Vector3* facing, struct Vector3* up, struct TransformQuat* boneTransforms, struct Transform* outBoneTransforms);
 	void HandlePlasmaPistolCharge();
 	void SetPlasmaPistolCharge();
