@@ -648,7 +648,10 @@ void Game::DrawGrenadeArc()
 
 		if (bDraw)
 		{
-			inGameRenderer.DrawLine3D(pos, nextPos, D3DCOLOR_ARGB(alpha, 90, 220, 255), true, 0.02f);
+			// bRespectDepth temporarily false: it was likely occluding the near part of the
+			// arc against the player's own hand/weapon model, causing the reported
+			// cutoff a short distance in front. Revisit once the position bug is fixed.
+			inGameRenderer.DrawLine3D(pos, nextPos, D3DCOLOR_ARGB(alpha, 90, 220, 255), false, 0.02f);
 		}
 
 		pos = nextPos;

@@ -1044,9 +1044,13 @@ bool WeaponHandler::GetGrenadeThrowPose(Vector3& outPos, Vector3& outAim) const
 	outPos = Helpers::GetCamera().position + handRelativeToPlayer;
 	outAim = (offsetRot * handRotation3) * Vector3(1.0f, 0.0f, 0.0f);
 
-#define GRENADE_ARC_DEBUG 0
+#define GRENADE_ARC_DEBUG 1
 #if GRENADE_ARC_DEBUG
-	Logger::log << "[GrenadeArc] player->position=" << player->position
+	static int callCount = 0;
+	callCount++;
+	Logger::log << "[GrenadeArc] call#=" << callCount
+		<< " renderState=" << static_cast<int>(Game::instance.GetRenderState())
+		<< " player->position=" << player->position
 		<< " handPos=" << handPos
 		<< " camera.position=" << Helpers::GetCamera().position
 		<< " outPos=" << outPos << std::endl;
