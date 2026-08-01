@@ -995,28 +995,22 @@ bool WeaponHandler::IsCurrentWeaponOneHanded() const
 
 bool WeaponHandler::GetGrenadeThrowPose(Vector3& outPos, Vector3& outAim) const
 {
-	HaloID playerID;
-	if (!Helpers::GetLocalPlayerID(playerID))
-	{
-		return false;
-	}
+	// GetLocalWeaponAim/GetDominantHandTransform (used for the working DRAW_DEBUG_AIM
+	// visualisation elsewhere in this file) operate entirely in local, real-world
+	// metre space: no MetresToWorld scaling and no player position are involved
+	// until the very end, where world space is reached with a single
+	// "camera.position + local * MetresToWorld" step. GetOffHandTransform, by
+	// contrast, follows RelocatePlayer's convention (applies MetresToWorld
+	// internally, meant to be combined with player->position for game logic
+	// purposes). Mixing the two conventions is what caused a large, confirmed
+	// per-eye misalignment previously - this follows the local-space convention
+	// throughout, matching GetLocalWeaponAim, and must not be changed back to the
+	// GetOffHandTransform + player->position form.
+	ControllerRole offHand = Game::instance.bLeftHanded
+		? ControllerRole::Right
+		: ControllerRole::Left;
 
-	UnitDynamicObject* player = static_cast<UnitDynamicObject*>(Helpers::GetDynamicObject(playerID));
-	if (!player)
-	{
-		return false;
-	}
-
-	// Mirrors the off hand branch of RelocatePlayer to get the hand pose relative
-	// to the player, so the drawn arc starts from and points along what the thrown
-	// grenade will actually use. If that calculation changes, this must change too.
-	Matrix4 controllerPos = GetOffHandTransform();
-
-	Vector3 translation = controllerPos * Vector3(0.0f, 0.0f, 0.0f);
-	controllerPos.translate(-translation);
-	translation *= Game::instance.MetresToWorld(1.0f);
-	translation += player->position;
-	controllerPos.translate(translation);
+	Matrix4 controllerPos = Game::instance.GetVR()->GetControllerTransform(offHand, true);
 
 	Vector3 handPos = controllerPos * Vector3(0.0f, 0.0f, 0.0f);
 	Matrix4 handRotation = controllerPos.translate(-handPos);
@@ -1035,23 +1029,18 @@ bool WeaponHandler::GetGrenadeThrowPose(Vector3& outPos, Vector3& outAim) const
 		offsetRot.setColumn(i, &aimOffset.get()[i * 4]);
 	}
 
-	// handPos was computed relative to player->position, which is Halo's internal
-	// game logic position and not necessarily the same coordinate space the
-	// renderer draws in this frame. Other working per-frame world drawing in this
-	// file (Game::DrawGrenadeArc's sibling, ShowRoomCentre) anchors on
-	// Helpers::GetCamera().position instead, so re-anchor there to match.
-	Vector3 handRelativeToPlayer = handPos - player->position;
-	outPos = Helpers::GetCamera().position + handRelativeToPlayer;
+	// Single, correct local-to-world conversion, matching the proven
+	// worldHandPos = camera.position + handPos * MetresToWorld(1.0f) pattern
+	outPos = Helpers::GetCamera().position + handPos * Game::instance.MetresToWorld(1.0f);
 	outAim = (offsetRot * handRotation3) * Vector3(1.0f, 0.0f, 0.0f);
 
-#define GRENADE_ARC_DEBUG 1
+#define GRENADE_ARC_DEBUG 0
 #if GRENADE_ARC_DEBUG
 	static int callCount = 0;
 	callCount++;
 	Logger::log << "[GrenadeArc] call#=" << callCount
 		<< " renderState=" << static_cast<int>(Game::instance.GetRenderState())
-		<< " player->position=" << player->position
-		<< " handPos=" << handPos
+		<< " handPos(local)=" << handPos
 		<< " camera.position=" << Helpers::GetCamera().position
 		<< " outPos=" << outPos << std::endl;
 #endif
