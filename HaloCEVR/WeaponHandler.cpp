@@ -7,6 +7,8 @@
 #include "Game.h"
 #include <algorithm>
 #include <cmath>
+#include <sstream>
+#include <iomanip>
 
 // This is a working decomp of the game's original logic for updating the view model's skeleton
 // Only kept here for reference when working on the replacement function below
@@ -1253,6 +1255,36 @@ void WeaponHandler::PreThrowGrenade(HaloID& playerID)
 	}
 }
 
+#define GRENADE_COUNT_HUNT_DEBUG 1
+#if GRENADE_COUNT_HUNT_DEBUG
+void WeaponHandler::DumpPlayerBytesForGrenadeCountHunt(BaseDynamicObject* player, int throwIndex)
+{
+	// ONE-OFF DIAGNOSTIC. Dumps raw bytes around the player struct as hex after
+	// each real throw, tagged with a throw sequence number. Intent: throw
+	// grenades one at a time from a known starting count down to zero, then diff
+	// consecutive dumps by hand (or with a script) to find whichever byte offset
+	// decrements by exactly 1 each throw and lands on a sane range (e.g. 0-4).
+	// Not meant to run in normal play - a pure memory read, so low risk, but
+	// still diagnostic-only code that should be removed once (if) found.
+	const unsigned char* base = reinterpret_cast<const unsigned char*>(player);
+	const int dumpSize = 0x360; // struct is ~0x328, some headroom in case the
+	                            // count lives just past the last mapped field
+
+	std::ostringstream hex;
+	hex << std::hex << std::setfill('0');
+	for (int i = 0; i < dumpSize; i++)
+	{
+		hex << std::setw(2) << static_cast<int>(base[i]);
+		if ((i + 1) % 4 == 0)
+		{
+			hex << ' ';
+		}
+	}
+
+	Logger::log << "[GrenadeCountHunt] throw#=" << throwIndex << " bytes=" << hex.str() << std::endl;
+}
+#endif
+
 void WeaponHandler::PostThrowGrenade(HaloID& playerID)
 {
 	if (weaponFiredPlayer)
@@ -1261,6 +1293,22 @@ void WeaponHandler::PostThrowGrenade(HaloID& playerID)
 		weaponFiredPlayer->aim = realPlayerAim;
 		weaponFiredPlayer = nullptr;
 	}
+
+#if GRENADE_COUNT_HUNT_DEBUG
+	{
+		HaloID localPlayerID;
+		if (Helpers::GetLocalPlayerID(localPlayerID) && localPlayerID == playerID)
+		{
+			BaseDynamicObject* player = Helpers::GetDynamicObject(playerID);
+			if (player)
+			{
+				static int throwCounter = 0;
+				throwCounter++;
+				DumpPlayerBytesForGrenadeCountHunt(player, throwCounter);
+			}
+		}
+	}
+#endif
 
 #if GRENADE_VELOCITY_DEBUG
 	// H_ThrowGrenade is a global engine hook: it fires for ANY unit's grenade

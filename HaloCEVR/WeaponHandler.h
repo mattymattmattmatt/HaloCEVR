@@ -32,6 +32,9 @@ public:
 	struct Vector3 lastGrenadeThrowOrigin;
 	int grenadeVelocityScanFramesRemaining = 0;
 	int grenadeVelocityScanIndex = 0;
+
+	// Debug-only, see GRENADE_COUNT_HUNT_DEBUG in WeaponHandler.cpp
+	void DumpPlayerBytesForGrenadeCountHunt(struct BaseDynamicObject* player, int throwIndex);
 	void UpdateGrenadeVelocityScan();
 	void UpdateViewModel(struct HaloID& id, struct Vector3* pos, struct Vector3* facing, struct Vector3* up, struct TransformQuat* boneTransforms, struct Transform* outBoneTransforms);
 	void HandlePlasmaPistolCharge();
