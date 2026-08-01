@@ -588,7 +588,7 @@ void Game::DrawGrenadeArc()
 	// Tied to the crosshair toggle so the arc counts as an "aimer" alongside the
 	// world crosshair: crosshair off means a fully clean view with no aim aids,
 	// crosshair on brings back both the reticle and the grenade arc together.
-	if (!c_ShowGrenadeArc->Value() || !bShowCrosshair || !inputHandler.IsGrenadeHeld())
+	if (!c_ShowGrenadeArc->Value() || !bShowCrosshair || !inputHandler.IsGrenadeHeld() || !weaponHandler.HasAnyGrenades())
 	{
 		return;
 	}

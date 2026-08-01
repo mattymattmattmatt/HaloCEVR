@@ -184,7 +184,12 @@ struct UnitDynamicObject : public BaseDynamicObject
 	float N00000333; //0x02CC
 	float N00000334; //0x02D0
 	float N00000335; //0x02D4
-	char pad_02D8[72]; //0x02D8
+	char pad_02D8[70]; //0x02D8
+	// Confirmed by observed testing: decrements by exactly 1 per real throw of the
+	// matching type, frozen while the other type is thrown, both start at the
+	// canonical Halo CE max of 4. Was previously the tail of pad_02D8[72].
+	uint8_t fragGrenadeCount; //0x031E
+	uint8_t plasmaGrenadeCount; //0x031F
 	int16_t zoom; //0x0320
 	char pad_0322[6]; //0x0322
 };

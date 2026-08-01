@@ -995,6 +995,23 @@ bool WeaponHandler::IsCurrentWeaponOneHanded() const
 	}
 }
 
+bool WeaponHandler::HasAnyGrenades() const
+{
+	HaloID playerID;
+	if (!Helpers::GetLocalPlayerID(playerID))
+	{
+		return false;
+	}
+
+	UnitDynamicObject* player = static_cast<UnitDynamicObject*>(Helpers::GetDynamicObject(playerID));
+	if (!player)
+	{
+		return false;
+	}
+
+	return player->fragGrenadeCount > 0 || player->plasmaGrenadeCount > 0;
+}
+
 bool WeaponHandler::GetGrenadeThrowPose(Vector3& outPos, Vector3& outAim) const
 {
 	// GetLocalWeaponAim/GetDominantHandTransform (used for the working DRAW_DEBUG_AIM

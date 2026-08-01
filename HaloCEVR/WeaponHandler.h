@@ -27,6 +27,8 @@ public:
 	bool IsCurrentWeaponOneHanded() const;
 	// Origin and aim direction a thrown grenade will actually use, in world space
 	bool GetGrenadeThrowPose(struct Vector3& outPos, struct Vector3& outAim) const;
+	// True if the player has at least one grenade of either type remaining
+	bool HasAnyGrenades() const;
 
 	// One-off diagnostic state, see GRENADE_VELOCITY_DEBUG in WeaponHandler.cpp
 	struct Vector3 lastGrenadeThrowOrigin;
