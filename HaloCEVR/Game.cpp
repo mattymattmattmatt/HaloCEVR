@@ -669,7 +669,12 @@ void Game::DrawGrenadeArc()
 			// (a wall, a crate), since the nudge is tiny next to any real occluder's
 			// distance.
 			const Vector3 camPos = Helpers::GetCamera().position;
-			const float biasAmount = MetresToWorld(0.03f);
+			// TEMP: bumped way up from 3cm to test whether this is ordinary z-fighting
+			// (small bias should fix it) or a larger systematic depth mismatch between
+			// our line's computed depth and the game's actual depth buffer values
+			// (would need a much bigger correction, or points at the view/projection
+			// matrices we use not exactly matching what the world was rendered with)
+			const float biasAmount = MetresToWorld(0.5f);
 
 			Vector3 toCamStart = camPos - pos;
 			float distStart = toCamStart.length();
