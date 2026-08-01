@@ -1283,7 +1283,7 @@ void Game::SetupConfigs()
 	c_DisableTwoHandForOneHanded = config.RegisterBool("DisableTwoHandForOneHanded", "Prevent the two hand grip from activating while holding a one handed weapon (pistol, plasma pistol, plasma rifle or needler), which has no real two handed hold", true);
 	c_ThrowGrenadeOnRelease = config.RegisterBool("ThrowGrenadeOnRelease", "Throw the grenade when the grenade button is released, rather than immediately when pressed. Lets you hold the button while winding up the throw motion", false);
 	c_ShowGrenadeArc = config.RegisterBool("ShowGrenadeArc", "Draw a predicted trajectory arc from your throwing hand while the grenade button is held", false);
-	c_GrenadeArcSpeed = config.RegisterFloat("GrenadeArcSpeed", "Assumed grenade launch speed in metres per second for the predicted arc. Tune until the arc matches where grenades actually land", 12.0f);
+	c_GrenadeArcSpeed = config.RegisterFloat("GrenadeArcSpeed", "Grenade launch speed in metres per second for the predicted arc. Measured via two independent in-game timing tests (26.49 and 26.60 m/s, agreeing within 0.4%), rather than guessed", 26.5f);
 	c_GrenadeArcGravity = config.RegisterFloat("GrenadeArcGravity", "Assumed gravity in metres per second squared for the predicted arc. Tune alongside GrenadeArcSpeed", 9.8f);
 	c_GrenadeArcSeconds = config.RegisterFloat("GrenadeArcSeconds", "How many seconds of flight the predicted arc covers", 2.5f);
 	c_GrenadeArcSegments = config.RegisterInt("GrenadeArcSegments", "Number of line segments used to draw the predicted arc. Higher is smoother", 40);
