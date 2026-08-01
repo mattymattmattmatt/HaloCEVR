@@ -655,17 +655,31 @@ void Game::DrawGrenadeArc()
 
 		if (bDraw)
 		{
-			// bRespectDepth temporarily false: it was likely occluding the near part of the
-			// arc against the player's own hand/weapon model, causing the reported
-			// cutoff a short distance in front. Revisit once the position bug is fixed.
 			// Respect depth so the arc is occluded by level geometry (walls, terrain),
 			// letting the player judge whether a throw actually clears an obstacle
-			// rather than seeing a line drawn through it. This was temporarily
-			// disabled while debugging an unrelated position bug and never turned
-			// back on. If the segment closest to the hand starts disappearing, that
-			// is the arc depth-testing against the player's own weapon/hand model
-			// at very close range, not a regression of the (now fixed) position bug.
-			inGameRenderer.DrawLine3D(pos, nextPos, D3DCOLOR_ARGB(alpha, 90, 220, 255), true, 0.02f);
+			// rather than seeing a line drawn through it.
+			//
+			// With depth respect alone, the line z-fights against any surface it
+			// grazes or nearly touches (worst when aiming along the ground, and
+			// generally worse at range as depth buffer precision falls off),
+			// showing as flicker or partial visibility. Nudging each point a small
+			// fixed distance towards the camera before drawing lets the arc reliably
+			// win against surfaces it is essentially coincident with, while still
+			// being properly occluded by anything meaningfully closer to the camera
+			// (a wall, a crate), since the nudge is tiny next to any real occluder's
+			// distance.
+			const Vector3 camPos = Helpers::GetCamera().position;
+			const float biasAmount = MetresToWorld(0.03f);
+
+			Vector3 toCamStart = camPos - pos;
+			float distStart = toCamStart.length();
+			Vector3 biasedPos = (distStart > 0.001f) ? pos + toCamStart * (biasAmount / distStart) : pos;
+
+			Vector3 toCamEnd = camPos - nextPos;
+			float distEnd = toCamEnd.length();
+			Vector3 biasedNextPos = (distEnd > 0.001f) ? nextPos + toCamEnd * (biasAmount / distEnd) : nextPos;
+
+			inGameRenderer.DrawLine3D(biasedPos, biasedNextPos, D3DCOLOR_ARGB(alpha, 90, 220, 255), true, 0.02f);
 		}
 
 		pos = nextPos;
