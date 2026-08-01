@@ -103,6 +103,9 @@ public:
 	bool bLeftHanded = false;
 	// Set by the HUD toggle gesture, when true the floating UI layer is not drawn
 	bool bHideHUD = false;
+	// TEMP TEST - grenade calibration stopwatch, see Game::UpdateInputs
+	bool bGrenadeCalibrationActive = false;
+	std::chrono::steady_clock::time_point grenadeCalibrationStart;
 	// Runtime crosshair visibility, initialised from c_ShowCrosshair, toggled by the ToggleCrosshair binding
 	bool bShowCrosshair = true;
 	bool bUse3DOFAiming = false;

@@ -1,3 +1,5 @@
+#include <chrono>
+#include <cmath>
 #include "Game.h"
 #include "Logger.h"
 #include "Hooking/Hooks.h"
@@ -923,6 +925,32 @@ void Game::PreThrowGrenade(HaloID& playerID)
 {
 	VR_PROFILE_SCOPE(Game_PreThrowGrenade);
 	weaponHandler.PreThrowGrenade(playerID);
+
+	// TEMP TEST - grenade calibration: start the stopwatch on a real local
+	// player throw, and log the launch angle at the same instant. Any throw
+	// angle works now - the tag data confirms initial velocity is a single
+	// fixed speed, only direction varies with aim, so we no longer need a
+	// specifically vertical throw. Press F7 the instant the grenade LANDS
+	// (not when it detonates - that's a separate fixed timer) to log flight
+	// time, giving an (angle, time) pair per throw.
+	{
+		HaloID localPlayerID;
+		if (Helpers::GetLocalPlayerID(localPlayerID) && localPlayerID == playerID)
+		{
+			Vector3 throwPos, throwAim;
+			if (weaponHandler.GetGrenadeThrowPose(throwPos, throwAim))
+			{
+				// Local axes are (forward, left, up), aim is normalised, so pitch
+				// above horizontal is asin of the up component
+				double pitchDegrees = std::asin(std::max(-1.0f, std::min(1.0f, throwAim.z))) * (180.0 / 3.14159265358979);
+				Logger::log << "[GrenadeCalibration] Throw detected, angle=" << pitchDegrees
+					<< " degrees above horizontal. Timer started, press F7 when it lands." << std::endl;
+			}
+
+			bGrenadeCalibrationActive = true;
+			grenadeCalibrationStart = std::chrono::steady_clock::now();
+		}
+	}
 }
 
 void Game::PostThrowGrenade(HaloID& playerID)
@@ -954,6 +982,20 @@ void Game::UpdateInputs()
 
 	bWasPressed = bPressed;
 #endif
+
+	// TEMP TEST - grenade calibration stopwatch stop key
+	{
+		static bool bWasF7Pressed = false;
+		bool bF7Pressed = (GetAsyncKeyState(VK_F7) & 0x8000) != 0;
+		if (bF7Pressed && !bWasF7Pressed && bGrenadeCalibrationActive)
+		{
+			auto elapsed = std::chrono::steady_clock::now() - grenadeCalibrationStart;
+			double seconds = std::chrono::duration<double>(elapsed).count();
+			Logger::log << "[GrenadeCalibration] Flight time: " << seconds << " seconds" << std::endl;
+			bGrenadeCalibrationActive = false;
+		}
+		bWasF7Pressed = bF7Pressed;
+	}
 }
 
 void Game::CalculateSmoothedInput()
