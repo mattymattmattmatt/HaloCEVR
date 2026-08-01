@@ -655,36 +655,18 @@ void Game::DrawGrenadeArc()
 
 		if (bDraw)
 		{
-			// Respect depth so the arc is occluded by level geometry (walls, terrain),
-			// letting the player judge whether a throw actually clears an obstacle
-			// rather than seeing a line drawn through it.
-			//
-			// With depth respect alone, the line z-fights against any surface it
-			// grazes or nearly touches (worst when aiming along the ground, and
-			// generally worse at range as depth buffer precision falls off),
-			// showing as flicker or partial visibility. Nudging each point a small
-			// fixed distance towards the camera before drawing lets the arc reliably
-			// win against surfaces it is essentially coincident with, while still
-			// being properly occluded by anything meaningfully closer to the camera
-			// (a wall, a crate), since the nudge is tiny next to any real occluder's
-			// distance.
-			const Vector3 camPos = Helpers::GetCamera().position;
-			// TEMP: bumped way up from 3cm to test whether this is ordinary z-fighting
-			// (small bias should fix it) or a larger systematic depth mismatch between
-			// our line's computed depth and the game's actual depth buffer values
-			// (would need a much bigger correction, or points at the view/projection
-			// matrices we use not exactly matching what the world was rendered with)
-			const float biasAmount = MetresToWorld(0.5f);
-
-			Vector3 toCamStart = camPos - pos;
-			float distStart = toCamStart.length();
-			Vector3 biasedPos = (distStart > 0.001f) ? pos + toCamStart * (biasAmount / distStart) : pos;
-
-			Vector3 toCamEnd = camPos - nextPos;
-			float distEnd = toCamEnd.length();
-			Vector3 biasedNextPos = (distEnd > 0.001f) ? nextPos + toCamEnd * (biasAmount / distEnd) : nextPos;
-
-			inGameRenderer.DrawLine3D(biasedPos, biasedNextPos, D3DCOLOR_ARGB(alpha, 90, 220, 255), true, 0.02f);
+			// Depth respecting was tried (occlude the arc against level geometry so
+			// a throw that would hit a wall visibly stops there) but the depth test
+			// did not correspond correctly to the real depth buffer: the ground
+			// consistently hid the whole arc regardless of a small or even a large
+			// (50cm) bias towards the camera, and a large bias caused visible
+			// artifacts near the hand instead of fixing anything. This points to a
+			// deeper mismatch (likely the view/projection matrices used for this
+			// draw not exactly matching what the world was actually rendered with)
+			// that needs live D3D9 debugging to diagnose properly, not something
+			// fixable by tuning a bias constant. Reverted to always-visible, which
+			// is reliable even though it draws through geometry.
+			inGameRenderer.DrawLine3D(pos, nextPos, D3DCOLOR_ARGB(alpha, 90, 220, 255), false, 0.02f);
 		}
 
 		pos = nextPos;
