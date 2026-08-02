@@ -506,8 +506,13 @@ void OpenVR::UpdateWristHUD()
 	Vector3 toHandDir = (distanceToHand > 0.001f) ? toHand * (1.0f / distanceToHand) : hmdForward;
 
 	// Visible only when the hand is raised reasonably close to the headset AND
-	// roughly in the direction being looked, similar to checking a real watch
-	const float maxDistance = Game::instance.MetresToWorld(0.6f);
+	// roughly in the direction being looked, similar to checking a real watch.
+	// distanceToHand comes straight from raw SteamVR device poses, which are
+	// always in real metres already - MetresToWorld converts metres INTO Halo's
+	// own internal world-unit scale (divides by 3.048), which does not apply
+	// here at all and was shrinking a 0.6m threshold down to under 20cm,
+	// meaning the distance check could almost never pass.
+	const float maxDistance = 0.6f;
 	const float minDot = 0.5f; // within ~60 degrees of dead centre
 
 	float dotValue = hmdForward.dot(toHandDir);
