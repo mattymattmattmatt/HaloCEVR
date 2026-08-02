@@ -64,14 +64,22 @@ void OpenVR::Init()
 	vrOverlay->SetOverlayFlag(uiOverlay, vr::VROverlayFlags_IsPremultiplied, true);
 	vrOverlay->ShowOverlay(uiOverlay);
 
-	// Wrist HUD calibration overlay: not interactive, hidden until the player
-	// raises their off hand to look at it
-	vr::EVROverlayError wristCreateErr = vrOverlay->CreateOverlay("WristOverlay", "WristOverlay", &wristOverlay);
-	if (wristCreateErr != vr::VROverlayError_None)
+	// Three wrist HUD overlays (ammo/health/radar), not interactive, hidden
+	// until the player raises their off hand to look at them
+	struct { vr::VROverlayHandle_t* handle; const char* key; } wristOverlaysToCreate[] = {
+		{ &wristAmmoOverlay, "WristAmmoOverlay" },
+		{ &wristHealthOverlay, "WristHealthOverlay" },
+		{ &wristRadarOverlay, "WristRadarOverlay" },
+	};
+	for (auto& entry : wristOverlaysToCreate)
 	{
-		Logger::log << "[OpenVR] Could not create wrist overlay: " << wristCreateErr << std::endl;
+		vr::EVROverlayError wristCreateErr = vrOverlay->CreateOverlay(entry.key, entry.key, entry.handle);
+		if (wristCreateErr != vr::VROverlayError_None)
+		{
+			Logger::log << "[OpenVR] Could not create " << entry.key << ": " << wristCreateErr << std::endl;
+		}
+		vrOverlay->SetOverlayFlag(*entry.handle, vr::VROverlayFlags_IsPremultiplied, true);
 	}
-	vrOverlay->SetOverlayFlag(wristOverlay, vr::VROverlayFlags_IsPremultiplied, true);
 
 	std::filesystem::path manifest = std::filesystem::current_path() / "VR" / "OpenVR" / "haloce.vrmanifest";
 	vr::EVRApplicationError appErr = vr::VRApplications()->AddApplicationManifest(manifest.string().c_str());
@@ -458,6 +466,41 @@ void OpenVR::PositionOverlay()
 	vrOverlay->SetOverlayTransformAbsolute(uiOverlay, vr::TrackingUniverseStanding, &transform);
 }
 
+// Positions and submits one cropped wrist HUD element. svRight/svUp/svBackward
+// are the shared rotation basis (SteamVR space); stackUp shifts this element
+// up (positive) or down (negative) from the base offset along svUp, so the
+// three elements stack top to bottom.
+static void SubmitWristElement(vr::IVROverlay* vrOverlay, vr::VROverlayHandle_t overlayHandle,
+	vr::TrackedDeviceIndex_t handIndex, const Vector3& svRight, const Vector3& svUp, const Vector3& svBackward,
+	const Vector3& offset, float stackUp, float scale,
+	float uMin, float vMin, float uMax, float vMax, ID3D11Texture2D* sourceTexture)
+{
+	vrOverlay->SetOverlayWidthInMeters(overlayHandle, scale);
+
+	vr::HmdMatrix34_t relativeTransform = {
+		svRight.x, svUp.x, svBackward.x, -offset.y + svUp.x * stackUp,
+		svRight.y, svUp.y, svBackward.y, offset.z + svUp.y * stackUp,
+		svRight.z, svUp.z, svBackward.z, -offset.x + svUp.z * stackUp
+	};
+	vr::EVROverlayError transformErr = vrOverlay->SetOverlayTransformTrackedDeviceRelative(overlayHandle, handIndex, &relativeTransform);
+	if (transformErr != vr::VROverlayError_None)
+	{
+		Logger::log << "[OpenVR] Could not set wrist element transform: " << transformErr << std::endl;
+	}
+
+	vr::VRTextureBounds_t bounds{ uMin, vMin, uMax, vMax };
+	vrOverlay->SetOverlayTextureBounds(overlayHandle, &bounds);
+
+	vr::Texture_t wristTex{ (void*)sourceTexture, vr::TextureType_DirectX, vr::ColorSpace_Auto };
+	vr::EVROverlayError wristTexErr = vrOverlay->SetOverlayTexture(overlayHandle, &wristTex);
+	if (wristTexErr != vr::VROverlayError_None)
+	{
+		Logger::log << "[OpenVR] Could not submit wrist element texture: " << wristTexErr << std::endl;
+	}
+
+	vrOverlay->ShowOverlay(overlayHandle);
+}
+
 void OpenVR::UpdateWristHUD()
 {
 	// uiSurface (the texture this clones) is shared with the pause/main menu,
@@ -465,7 +508,9 @@ void OpenVR::UpdateWristHUD()
 	// gameplay HUD whenever one is active
 	if (!Game::instance.c_ShowWristHUD->Value() || bMouseVisible)
 	{
-		vrOverlay->HideOverlay(wristOverlay);
+		vrOverlay->HideOverlay(wristAmmoOverlay);
+		vrOverlay->HideOverlay(wristHealthOverlay);
+		vrOverlay->HideOverlay(wristRadarOverlay);
 		return;
 	}
 
@@ -490,7 +535,9 @@ void OpenVR::UpdateWristHUD()
 			Logger::log << "[WristHUDDebug] hand index invalid or pose invalid. handIndex=" << handIndex << std::endl;
 		}
 #endif
-		vrOverlay->HideOverlay(wristOverlay);
+		vrOverlay->HideOverlay(wristAmmoOverlay);
+		vrOverlay->HideOverlay(wristHealthOverlay);
+		vrOverlay->HideOverlay(wristRadarOverlay);
 		return;
 	}
 
@@ -533,12 +580,11 @@ void OpenVR::UpdateWristHUD()
 
 	if (!bLookingAtWrist)
 	{
-		vrOverlay->HideOverlay(wristOverlay);
+		vrOverlay->HideOverlay(wristAmmoOverlay);
+		vrOverlay->HideOverlay(wristHealthOverlay);
+		vrOverlay->HideOverlay(wristRadarOverlay);
 		return;
 	}
-
-	vrOverlay->ShowOverlay(wristOverlay);
-	vrOverlay->SetOverlayWidthInMeters(wristOverlay, Game::instance.c_WristHUDScale->Value());
 
 	// c_WristHUDOffset/c_WristHUDRotation follow the mod's own (forward, left,
 	// up) convention used throughout the rest of the config, but SteamVR's
@@ -566,25 +612,23 @@ void OpenVR::UpdateWristHUD()
 	Vector3 svBackward(-rotForwardCol.x, -rotForwardCol.y, -rotForwardCol.z);
 
 	Vector3 offset = Game::instance.c_WristHUDOffset->Value();
-	vr::HmdMatrix34_t relativeTransform = {
-		svRight.x, svUp.x, svBackward.x, -offset.y,
-		svRight.y, svUp.y, svBackward.y, offset.z,
-		svRight.z, svUp.z, svBackward.z, -offset.x
-	};
-	vr::EVROverlayError transformErr = vrOverlay->SetOverlayTransformTrackedDeviceRelative(wristOverlay, handIndex, &relativeTransform);
-	if (transformErr != vr::VROverlayError_None)
-	{
-		Logger::log << "[OpenVR] Could not set wrist overlay transform: " << transformErr << std::endl;
-	}
+	float scale = Game::instance.c_WristHUDScale->Value();
+	float spacing = Game::instance.c_WristHUDElementSpacing->Value();
+	ID3D11Texture2D* sourceTexture = vrRenderTexture[uiSurface];
 
-	// Same already-rendered HUD texture the main UI overlay uses - the whole,
-	// uncropped image for now, purely to see where elements actually sit
-	vr::Texture_t wristTex{ (void*)vrRenderTexture[uiSurface], vr::TextureType_DirectX, vr::ColorSpace_Auto };
-	vr::EVROverlayError wristTexErr = vrOverlay->SetOverlayTexture(wristOverlay, &wristTex);
-	if (wristTexErr != vr::VROverlayError_None)
-	{
-		Logger::log << "[OpenVR] Could not submit wrist texture: " << wristTexErr << std::endl;
-	}
+	// Health is the anchor (base offset, no stacking); ammo sits one spacing
+	// above it, radar one spacing below, all along the panel's own up axis
+	SubmitWristElement(vrOverlay, wristAmmoOverlay, handIndex, svRight, svUp, svBackward, offset, spacing, scale,
+		Game::instance.c_WristHUDAmmoUMin->Value(), Game::instance.c_WristHUDAmmoVMin->Value(),
+		Game::instance.c_WristHUDAmmoUMax->Value(), Game::instance.c_WristHUDAmmoVMax->Value(), sourceTexture);
+
+	SubmitWristElement(vrOverlay, wristHealthOverlay, handIndex, svRight, svUp, svBackward, offset, 0.0f, scale,
+		Game::instance.c_WristHUDHealthUMin->Value(), Game::instance.c_WristHUDHealthVMin->Value(),
+		Game::instance.c_WristHUDHealthUMax->Value(), Game::instance.c_WristHUDHealthVMax->Value(), sourceTexture);
+
+	SubmitWristElement(vrOverlay, wristRadarOverlay, handIndex, svRight, svUp, svBackward, offset, -spacing, scale,
+		Game::instance.c_WristHUDRadarUMin->Value(), Game::instance.c_WristHUDRadarVMin->Value(),
+		Game::instance.c_WristHUDRadarUMax->Value(), Game::instance.c_WristHUDRadarVMax->Value(), sourceTexture);
 }
 
 void OpenVR::PostDrawFrame(Renderer* renderer, float deltaTime)

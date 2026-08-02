@@ -1292,6 +1292,23 @@ void Game::SetupConfigs()
 	c_WristHUDScale = config.RegisterFloat("WristHUDScale", "Width in metres of the wrist HUD overlay", 0.15f);
 	c_WristHUDOffset = config.RegisterVector3("WristHUDOffset", "The (forward, left, up) offset of the wrist HUD relative to the off hand controller", Vector3(0.0f, 0.0f, 0.05f));
 	c_WristHUDRotation = config.RegisterVector3("WristHUDRotation", "Rotation in degrees (X, Y, Z, same convention as ControllerRotation) applied to the wrist HUD so it faces you correctly. Needs tuning per controller", Vector3(0.0f, 0.0f, 0.0f));
+	c_WristHUDElementSpacing = config.RegisterFloat("WristHUDElementSpacing", "Vertical gap in metres between the three stacked wrist HUD elements", 0.04f);
+	// Starting guesses based on a screenshot of the whole cloned texture, each
+	// crop is a fraction (0-1) of the underlying 640x640 render target. Needs
+	// visual tuning: adjust one edge at a time and compare against what's
+	// actually visible in the headset.
+	c_WristHUDAmmoUMin = config.RegisterFloat("WristHUDAmmoUMin", "Left edge (0-1) of the ammo crop from the wrist HUD texture", 0.0f);
+	c_WristHUDAmmoVMin = config.RegisterFloat("WristHUDAmmoVMin", "Top edge (0-1) of the ammo crop from the wrist HUD texture", 0.35f);
+	c_WristHUDAmmoUMax = config.RegisterFloat("WristHUDAmmoUMax", "Right edge (0-1) of the ammo crop from the wrist HUD texture", 0.45f);
+	c_WristHUDAmmoVMax = config.RegisterFloat("WristHUDAmmoVMax", "Bottom edge (0-1) of the ammo crop from the wrist HUD texture", 0.55f);
+	c_WristHUDHealthUMin = config.RegisterFloat("WristHUDHealthUMin", "Left edge (0-1) of the health crop from the wrist HUD texture", 0.5f);
+	c_WristHUDHealthVMin = config.RegisterFloat("WristHUDHealthVMin", "Top edge (0-1) of the health crop from the wrist HUD texture", 0.35f);
+	c_WristHUDHealthUMax = config.RegisterFloat("WristHUDHealthUMax", "Right edge (0-1) of the health crop from the wrist HUD texture", 0.9f);
+	c_WristHUDHealthVMax = config.RegisterFloat("WristHUDHealthVMax", "Bottom edge (0-1) of the health crop from the wrist HUD texture", 0.5f);
+	c_WristHUDRadarUMin = config.RegisterFloat("WristHUDRadarUMin", "Left edge (0-1) of the radar crop from the wrist HUD texture", 0.0f);
+	c_WristHUDRadarVMin = config.RegisterFloat("WristHUDRadarVMin", "Top edge (0-1) of the radar crop from the wrist HUD texture", 0.6f);
+	c_WristHUDRadarUMax = config.RegisterFloat("WristHUDRadarUMax", "Right edge (0-1) of the radar crop from the wrist HUD texture", 0.3f);
+	c_WristHUDRadarVMax = config.RegisterFloat("WristHUDRadarVMax", "Bottom edge (0-1) of the radar crop from the wrist HUD texture", 0.85f);
 	c_DisableTwoHandForOneHanded = config.RegisterBool("DisableTwoHandForOneHanded", "Prevent the two hand grip from activating while holding a one handed weapon (pistol, plasma pistol, plasma rifle or needler), which has no real two handed hold", true);
 	c_ThrowGrenadeOnRelease = config.RegisterBool("ThrowGrenadeOnRelease", "Throw the grenade when the grenade button is released, rather than immediately when pressed. Lets you hold the button while winding up the throw motion", false);
 	c_ShowGrenadeArc = config.RegisterBool("ShowGrenadeArc", "Draw a predicted trajectory arc from your throwing hand while the grenade button is held", false);
