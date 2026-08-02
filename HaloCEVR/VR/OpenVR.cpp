@@ -1,6 +1,7 @@
 #include <d3d11.h>
 #include <d3d9.h>
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include "OpenVR.h"
 #include "../Logger.h"
@@ -65,7 +66,11 @@ void OpenVR::Init()
 
 	// Wrist HUD calibration overlay: not interactive, hidden until the player
 	// raises their off hand to look at it
-	vrOverlay->CreateOverlay("WristOverlay", "WristOverlay", &wristOverlay);
+	vr::EVROverlayError wristCreateErr = vrOverlay->CreateOverlay("WristOverlay", "WristOverlay", &wristOverlay);
+	if (wristCreateErr != vr::VROverlayError_None)
+	{
+		Logger::log << "[OpenVR] Could not create wrist overlay: " << wristCreateErr << std::endl;
+	}
 	vrOverlay->SetOverlayFlag(wristOverlay, vr::VROverlayFlags_IsPremultiplied, true);
 
 	std::filesystem::path manifest = std::filesystem::current_path() / "VR" / "OpenVR" / "haloce.vrmanifest";
@@ -467,8 +472,21 @@ void OpenVR::UpdateWristHUD()
 	vr::TrackedDeviceIndex_t handIndex = vrSystem->GetTrackedDeviceIndexForControllerRole(
 		offHand == ControllerRole::Left ? vr::TrackedControllerRole_LeftHand : vr::TrackedControllerRole_RightHand);
 
+#define WRIST_HUD_DEBUG 1
+#if WRIST_HUD_DEBUG
+	static std::chrono::steady_clock::time_point lastWristLogTime;
+	bool bShouldLogNow = std::chrono::duration<double>(std::chrono::steady_clock::now() - lastWristLogTime).count() > 0.5;
+#endif
+
 	if (handIndex == vr::k_unTrackedDeviceIndexInvalid || !renderPoses[handIndex].bPoseIsValid)
 	{
+#if WRIST_HUD_DEBUG
+		if (bShouldLogNow)
+		{
+			lastWristLogTime = std::chrono::steady_clock::now();
+			Logger::log << "[WristHUDDebug] hand index invalid or pose invalid. handIndex=" << handIndex << std::endl;
+		}
+#endif
 		vrOverlay->HideOverlay(wristOverlay);
 		return;
 	}
@@ -492,7 +510,18 @@ void OpenVR::UpdateWristHUD()
 	const float maxDistance = Game::instance.MetresToWorld(0.6f);
 	const float minDot = 0.5f; // within ~60 degrees of dead centre
 
-	bool bLookingAtWrist = distanceToHand < maxDistance && hmdForward.dot(toHandDir) > minDot;
+	float dotValue = hmdForward.dot(toHandDir);
+	bool bLookingAtWrist = distanceToHand < maxDistance && dotValue > minDot;
+
+#if WRIST_HUD_DEBUG
+	if (bShouldLogNow)
+	{
+		lastWristLogTime = std::chrono::steady_clock::now();
+		Logger::log << "[WristHUDDebug] distanceToHand=" << distanceToHand
+			<< " maxDistance=" << maxDistance << " dot=" << dotValue
+			<< " minDot=" << minDot << " looking=" << bLookingAtWrist << std::endl;
+	}
+#endif
 
 	if (!bLookingAtWrist)
 	{
@@ -513,12 +542,20 @@ void OpenVR::UpdateWristHUD()
 		0, 1, 0, offset.z,
 		0, 0, 1, -offset.x
 	};
-	vrOverlay->SetOverlayTransformTrackedDeviceRelative(wristOverlay, handIndex, &relativeTransform);
+	vr::EVROverlayError transformErr = vrOverlay->SetOverlayTransformTrackedDeviceRelative(wristOverlay, handIndex, &relativeTransform);
+	if (transformErr != vr::VROverlayError_None)
+	{
+		Logger::log << "[OpenVR] Could not set wrist overlay transform: " << transformErr << std::endl;
+	}
 
 	// Same already-rendered HUD texture the main UI overlay uses - the whole,
 	// uncropped image for now, purely to see where elements actually sit
 	vr::Texture_t wristTex{ (void*)vrRenderTexture[uiSurface], vr::TextureType_DirectX, vr::ColorSpace_Auto };
-	vrOverlay->SetOverlayTexture(wristOverlay, &wristTex);
+	vr::EVROverlayError wristTexErr = vrOverlay->SetOverlayTexture(wristOverlay, &wristTex);
+	if (wristTexErr != vr::VROverlayError_None)
+	{
+		Logger::log << "[OpenVR] Could not submit wrist texture: " << wristTexErr << std::endl;
+	}
 }
 
 void OpenVR::PostDrawFrame(Renderer* renderer, float deltaTime)
