@@ -477,10 +477,21 @@ static void SubmitWristElement(vr::IVROverlay* vrOverlay, vr::VROverlayHandle_t 
 {
 	vrOverlay->SetOverlayWidthInMeters(overlayHandle, scale);
 
+	// Stacking previously used svUp (the ROTATED up basis) for the offset between
+	// elements. That is correct for orienting each panel's own tilt, but since
+	// WristHUDRotation includes roll, svUp is itself a diagonal direction once
+	// rotated - stacking along it produced a diagonal drift between elements
+	// instead of a straight vertical line, worse the larger the roll. Stacking
+	// now uses a fixed, unrotated up direction (matching the same convention the
+	// position offset's Z component already uses with no rotation applied), so
+	// the three elements stay vertically aligned regardless of panel roll, while
+	// svRight/svUp/svBackward still control each panel's own facing/tilt.
+	const Vector3 stackDirection(0.0f, 1.0f, 0.0f);
+
 	vr::HmdMatrix34_t relativeTransform = {
-		svRight.x, svUp.x, svBackward.x, -offset.y + svUp.x * stackUp,
-		svRight.y, svUp.y, svBackward.y, offset.z + svUp.y * stackUp,
-		svRight.z, svUp.z, svBackward.z, -offset.x + svUp.z * stackUp
+		svRight.x, svUp.x, svBackward.x, -offset.y + stackDirection.x * stackUp,
+		svRight.y, svUp.y, svBackward.y, offset.z + stackDirection.y * stackUp,
+		svRight.z, svUp.z, svBackward.z, -offset.x + stackDirection.z * stackUp
 	};
 	vr::EVROverlayError transformErr = vrOverlay->SetOverlayTransformTrackedDeviceRelative(overlayHandle, handIndex, &relativeTransform);
 	if (transformErr != vr::VROverlayError_None)
