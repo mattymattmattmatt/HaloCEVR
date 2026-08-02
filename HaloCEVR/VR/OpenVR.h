@@ -63,6 +63,7 @@ public:
 protected:
 	void CreateTexAndSurface(int index, UINT Width, UINT Height, DWORD Usage, D3DFORMAT Format);
 	void PositionOverlay();
+	void UpdateWristHUD();
 	void UpdateSkeleton(ControllerRole hand);
 	void UpdatePose(ControllerRole hand);
 
@@ -94,6 +95,10 @@ protected:
 	void SetActiveActionSet(int index, const std::string& actionSetName);
 	
 	vr::VROverlayHandle_t uiOverlay;
+	// Calibration step: clones the whole rendered HUD texture onto the off hand
+	// wrist, visible only when raising/looking at it, so the real HUD layout can
+	// be inspected before cropping specific regions for a final wrist HUD
+	vr::VROverlayHandle_t wristOverlay;
 
 	vr::TrackedDevicePose_t gamePoses[vr::k_unMaxTrackedDeviceCount];
 	vr::TrackedDevicePose_t renderPoses[vr::k_unMaxTrackedDeviceCount];

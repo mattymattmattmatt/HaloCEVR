@@ -63,6 +63,11 @@ void OpenVR::Init()
 	vrOverlay->SetOverlayFlag(uiOverlay, vr::VROverlayFlags_IsPremultiplied, true);
 	vrOverlay->ShowOverlay(uiOverlay);
 
+	// Wrist HUD calibration overlay: not interactive, hidden until the player
+	// raises their off hand to look at it
+	vrOverlay->CreateOverlay("WristOverlay", "WristOverlay", &wristOverlay);
+	vrOverlay->SetOverlayFlag(wristOverlay, vr::VROverlayFlags_IsPremultiplied, true);
+
 	std::filesystem::path manifest = std::filesystem::current_path() / "VR" / "OpenVR" / "haloce.vrmanifest";
 	vr::EVRApplicationError appErr = vr::VRApplications()->AddApplicationManifest(manifest.string().c_str());
 
@@ -448,6 +453,74 @@ void OpenVR::PositionOverlay()
 	vrOverlay->SetOverlayTransformAbsolute(uiOverlay, vr::TrackingUniverseStanding, &transform);
 }
 
+void OpenVR::UpdateWristHUD()
+{
+	if (!Game::instance.c_ShowWristHUD->Value())
+	{
+		vrOverlay->HideOverlay(wristOverlay);
+		return;
+	}
+
+	// Off hand: the hand not used for weapon aiming, same convention used
+	// throughout the mod (flashlight, HUD toggle, grenade throw, etc.)
+	ControllerRole offHand = Game::instance.bLeftHanded ? ControllerRole::Right : ControllerRole::Left;
+	vr::TrackedDeviceIndex_t handIndex = vrSystem->GetTrackedDeviceIndexForControllerRole(
+		offHand == ControllerRole::Left ? vr::TrackedControllerRole_LeftHand : vr::TrackedControllerRole_RightHand);
+
+	if (handIndex == vr::k_unTrackedDeviceIndexInvalid || !renderPoses[handIndex].bPoseIsValid)
+	{
+		vrOverlay->HideOverlay(wristOverlay);
+		return;
+	}
+
+	// HMD position and forward direction, same matrix convention already used
+	// in PositionOverlay to push the main UI panel out in front of the face
+	vr::HmdMatrix34_t hmdMat = renderPoses[vr::k_unTrackedDeviceIndex_Hmd].mDeviceToAbsoluteTracking;
+	Vector3 hmdPos(hmdMat.m[0][3], hmdMat.m[1][3], hmdMat.m[2][3]);
+	Vector3 hmdForward(-hmdMat.m[0][2], -hmdMat.m[1][2], -hmdMat.m[2][2]);
+	hmdForward = hmdForward.normalize();
+
+	vr::HmdMatrix34_t handMat = renderPoses[handIndex].mDeviceToAbsoluteTracking;
+	Vector3 handPos(handMat.m[0][3], handMat.m[1][3], handMat.m[2][3]);
+
+	Vector3 toHand = handPos - hmdPos;
+	float distanceToHand = toHand.length();
+	Vector3 toHandDir = (distanceToHand > 0.001f) ? toHand * (1.0f / distanceToHand) : hmdForward;
+
+	// Visible only when the hand is raised reasonably close to the headset AND
+	// roughly in the direction being looked, similar to checking a real watch
+	const float maxDistance = Game::instance.MetresToWorld(0.6f);
+	const float minDot = 0.5f; // within ~60 degrees of dead centre
+
+	bool bLookingAtWrist = distanceToHand < maxDistance && hmdForward.dot(toHandDir) > minDot;
+
+	if (!bLookingAtWrist)
+	{
+		vrOverlay->HideOverlay(wristOverlay);
+		return;
+	}
+
+	vrOverlay->ShowOverlay(wristOverlay);
+	vrOverlay->SetOverlayWidthInMeters(wristOverlay, Game::instance.c_WristHUDScale->Value());
+
+	// c_WristHUDOffset follows the mod's own (forward, left, up) convention used
+	// throughout the rest of the config, but SteamVR's device-relative transform
+	// wants translation in its own (X=right, Y=up, Z=backward) space, so this
+	// converts: right = -left, up = up, backward = -forward
+	Vector3 offset = Game::instance.c_WristHUDOffset->Value();
+	vr::HmdMatrix34_t relativeTransform = {
+		1, 0, 0, -offset.y,
+		0, 1, 0, offset.z,
+		0, 0, 1, -offset.x
+	};
+	vrOverlay->SetOverlayTransformTrackedDeviceRelative(wristOverlay, handIndex, &relativeTransform);
+
+	// Same already-rendered HUD texture the main UI overlay uses - the whole,
+	// uncropped image for now, purely to see where elements actually sit
+	vr::Texture_t wristTex{ (void*)vrRenderTexture[uiSurface], vr::TextureType_DirectX, vr::ColorSpace_Auto };
+	vrOverlay->SetOverlayTexture(wristOverlay, &wristTex);
+}
+
 void OpenVR::PostDrawFrame(Renderer* renderer, float deltaTime)
 {
 	VR_PROFILE_SCOPE(OpenVR_PostDrawFrame);
@@ -488,6 +561,7 @@ void OpenVR::PostDrawFrame(Renderer* renderer, float deltaTime)
 	VR_PROFILE_STOP(OpenVR_SubmitEyes);
 
 	PositionOverlay();
+	UpdateWristHUD();
 
 	// The HUD toggle gesture hides the floating UI by hiding the overlay rather than
 	// skipping the HUD draw, so the game's HUD logic (including the shield recharge

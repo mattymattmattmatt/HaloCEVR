@@ -234,6 +234,9 @@ public:
 	FloatProperty* c_HorizontalVehicleTurnAmount = nullptr;
 	FloatProperty* c_VerticalVehicleTurnAmount = nullptr;
 	BoolProperty* c_VehicleFaceAim = nullptr;
+	BoolProperty* c_ShowWristHUD = nullptr;
+	FloatProperty* c_WristHUDScale = nullptr;
+	Vector3Property* c_WristHUDOffset = nullptr;
 	BoolProperty* c_DisableTwoHandForOneHanded = nullptr;
 	BoolProperty* c_ThrowGrenadeOnRelease = nullptr;
 	BoolProperty* c_ShowGrenadeArc = nullptr;
