@@ -239,6 +239,7 @@ public:
 	Vector3Property* c_WristHUDOffset = nullptr;
 	Vector3Property* c_WristHUDRotation = nullptr;
 	FloatProperty* c_WristHUDElementSpacing = nullptr;
+	FloatProperty* c_WristHUDRadarScale = nullptr;
 	FloatProperty* c_WristHUDAmmoUMin = nullptr;
 	FloatProperty* c_WristHUDAmmoVMin = nullptr;
 	FloatProperty* c_WristHUDAmmoUMax = nullptr;

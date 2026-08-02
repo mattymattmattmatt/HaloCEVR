@@ -626,7 +626,8 @@ void OpenVR::UpdateWristHUD()
 		Game::instance.c_WristHUDHealthUMin->Value(), Game::instance.c_WristHUDHealthVMin->Value(),
 		Game::instance.c_WristHUDHealthUMax->Value(), Game::instance.c_WristHUDHealthVMax->Value(), sourceTexture);
 
-	SubmitWristElement(vrOverlay, wristRadarOverlay, handIndex, svRight, svUp, svBackward, offset, -spacing, scale,
+	float radarScale = Game::instance.c_WristHUDRadarScale->Value();
+	SubmitWristElement(vrOverlay, wristRadarOverlay, handIndex, svRight, svUp, svBackward, offset, -spacing, radarScale,
 		Game::instance.c_WristHUDRadarUMin->Value(), Game::instance.c_WristHUDRadarVMin->Value(),
 		Game::instance.c_WristHUDRadarUMax->Value(), Game::instance.c_WristHUDRadarVMax->Value(), sourceTexture);
 }

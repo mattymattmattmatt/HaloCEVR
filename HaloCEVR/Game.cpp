@@ -1293,6 +1293,7 @@ void Game::SetupConfigs()
 	c_WristHUDOffset = config.RegisterVector3("WristHUDOffset", "The (forward, left, up) offset of the wrist HUD relative to the off hand controller", Vector3(0.0f, 0.0f, 0.05f));
 	c_WristHUDRotation = config.RegisterVector3("WristHUDRotation", "Rotation in degrees (X, Y, Z, same convention as ControllerRotation) applied to the wrist HUD so it faces you correctly. Needs tuning per controller", Vector3(0.0f, 0.0f, 0.0f));
 	c_WristHUDElementSpacing = config.RegisterFloat("WristHUDElementSpacing", "Vertical gap in metres between the three stacked wrist HUD elements", 0.04f);
+	c_WristHUDRadarScale = config.RegisterFloat("WristHUDRadarScale", "Width in metres of just the radar element. The radar crop is closer to square than ammo/health, so at the same width it renders much taller and can overlap health - kept separate so it can be sized down independently", 0.08f);
 	// Starting guesses based on a screenshot of the whole cloned texture, each
 	// crop is a fraction (0-1) of the underlying 640x640 render target. Needs
 	// visual tuning: adjust one edge at a time and compare against what's
