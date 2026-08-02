@@ -460,7 +460,10 @@ void OpenVR::PositionOverlay()
 
 void OpenVR::UpdateWristHUD()
 {
-	if (!Game::instance.c_ShowWristHUD->Value())
+	// uiSurface (the texture this clones) is shared with the pause/main menu,
+	// so without this the wrist clone shows whatever menu is open instead of
+	// gameplay HUD whenever one is active
+	if (!Game::instance.c_ShowWristHUD->Value() || bMouseVisible)
 	{
 		vrOverlay->HideOverlay(wristOverlay);
 		return;
@@ -537,15 +540,36 @@ void OpenVR::UpdateWristHUD()
 	vrOverlay->ShowOverlay(wristOverlay);
 	vrOverlay->SetOverlayWidthInMeters(wristOverlay, Game::instance.c_WristHUDScale->Value());
 
-	// c_WristHUDOffset follows the mod's own (forward, left, up) convention used
-	// throughout the rest of the config, but SteamVR's device-relative transform
-	// wants translation in its own (X=right, Y=up, Z=backward) space, so this
-	// converts: right = -left, up = up, backward = -forward
+	// c_WristHUDOffset/c_WristHUDRotation follow the mod's own (forward, left,
+	// up) convention used throughout the rest of the config, but SteamVR's
+	// device-relative transform wants its own (X=right, Y=up, Z=backward)
+	// space, so both the position and the rotation basis vectors are converted:
+	// right = -left, up = up, backward = -forward.
+	//
+	// The rotation itself is built with the mod's own, already-tested Matrix4
+	// rotateZ/rotateY/rotateX (same order and convention as ControllerRotation)
+	// rather than constructing new rotation math by hand, then the resulting
+	// basis columns are converted the same way as the position offset above.
+	Vector3 rot = Game::instance.c_WristHUDRotation->Value();
+	Matrix4 rotMatrix;
+	rotMatrix.rotateZ(rot.z);
+	rotMatrix.rotateY(rot.y);
+	rotMatrix.rotateX(rot.x);
+
+	Vector4 rotForwardCol = rotMatrix.getColumn(0); // mod X = forward
+	Vector4 rotLeftCol = rotMatrix.getColumn(1);    // mod Y = left
+	Vector4 rotUpCol = rotMatrix.getColumn(2);      // mod Z = up
+
+	// SteamVR X (right) = -left, Y (up) = up, Z (backward) = -forward
+	Vector3 svRight(-rotLeftCol.x, -rotLeftCol.y, -rotLeftCol.z);
+	Vector3 svUp(rotUpCol.x, rotUpCol.y, rotUpCol.z);
+	Vector3 svBackward(-rotForwardCol.x, -rotForwardCol.y, -rotForwardCol.z);
+
 	Vector3 offset = Game::instance.c_WristHUDOffset->Value();
 	vr::HmdMatrix34_t relativeTransform = {
-		1, 0, 0, -offset.y,
-		0, 1, 0, offset.z,
-		0, 0, 1, -offset.x
+		svRight.x, svUp.x, svBackward.x, -offset.y,
+		svRight.y, svUp.y, svBackward.y, offset.z,
+		svRight.z, svUp.z, svBackward.z, -offset.x
 	};
 	vr::EVROverlayError transformErr = vrOverlay->SetOverlayTransformTrackedDeviceRelative(wristOverlay, handIndex, &relativeTransform);
 	if (transformErr != vr::VROverlayError_None)

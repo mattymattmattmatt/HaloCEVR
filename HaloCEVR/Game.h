@@ -237,6 +237,7 @@ public:
 	BoolProperty* c_ShowWristHUD = nullptr;
 	FloatProperty* c_WristHUDScale = nullptr;
 	Vector3Property* c_WristHUDOffset = nullptr;
+	Vector3Property* c_WristHUDRotation = nullptr;
 	BoolProperty* c_DisableTwoHandForOneHanded = nullptr;
 	BoolProperty* c_ThrowGrenadeOnRelease = nullptr;
 	BoolProperty* c_ShowGrenadeArc = nullptr;

@@ -1291,6 +1291,7 @@ void Game::SetupConfigs()
 	c_ShowWristHUD = config.RegisterBool("ShowWristHUD", "CALIBRATION STEP. Clones the entire HUD texture onto the off hand wrist, visible only when raising the hand to look at it, so the real element layout can be inspected before building a cropped final version. Off by default", false);
 	c_WristHUDScale = config.RegisterFloat("WristHUDScale", "Width in metres of the wrist HUD overlay", 0.15f);
 	c_WristHUDOffset = config.RegisterVector3("WristHUDOffset", "The (forward, left, up) offset of the wrist HUD relative to the off hand controller", Vector3(0.0f, 0.0f, 0.05f));
+	c_WristHUDRotation = config.RegisterVector3("WristHUDRotation", "Rotation in degrees (X, Y, Z, same convention as ControllerRotation) applied to the wrist HUD so it faces you correctly. Needs tuning per controller", Vector3(0.0f, 0.0f, 0.0f));
 	c_DisableTwoHandForOneHanded = config.RegisterBool("DisableTwoHandForOneHanded", "Prevent the two hand grip from activating while holding a one handed weapon (pistol, plasma pistol, plasma rifle or needler), which has no real two handed hold", true);
 	c_ThrowGrenadeOnRelease = config.RegisterBool("ThrowGrenadeOnRelease", "Throw the grenade when the grenade button is released, rather than immediately when pressed. Lets you hold the button while winding up the throw motion", false);
 	c_ShowGrenadeArc = config.RegisterBool("ShowGrenadeArc", "Draw a predicted trajectory arc from your throwing hand while the grenade button is held", false);
