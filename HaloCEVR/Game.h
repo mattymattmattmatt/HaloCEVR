@@ -26,6 +26,12 @@ public:
 	bool IsCurrentWeaponOneHanded() const;
 	// Debug-only, see GRENADE_VELOCITY_DEBUG in WeaponHandler.cpp
 	void UpdateGrenadeVelocityScan();
+
+	// Live in-headset adjustment of HUD element placement, so positioning can be
+	// tuned by watching it move rather than by editing config and relaunching
+	void UpdateLiveHUDAdjuster();
+	int liveAdjustTarget = 0;
+	float liveAdjustStep = 0.01f;
 	// Draws the predicted grenade trajectory while the grenade button is held
 	void DrawGrenadeArc();
 	static Game instance;
@@ -240,6 +246,7 @@ public:
 	Vector3Property* c_WristHUDRotation = nullptr;
 	FloatProperty* c_WristHUDElementSpacing = nullptr;
 	FloatProperty* c_WristHUDRadarScale = nullptr;
+	BoolProperty* c_EnableLiveHUDAdjuster = nullptr;
 	FloatProperty* c_WristHUDAmmoUMin = nullptr;
 	FloatProperty* c_WristHUDAmmoVMin = nullptr;
 	FloatProperty* c_WristHUDAmmoUMax = nullptr;

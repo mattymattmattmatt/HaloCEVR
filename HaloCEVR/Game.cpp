@@ -967,9 +967,163 @@ void Game::PostThrowGrenade(HaloID& playerID)
 	weaponHandler.PostThrowGrenade(playerID);
 }
 
+// Live in-headset HUD placement adjuster.
+//
+// Positioning VR elements by editing config and relaunching is extremely slow -
+// you cannot see what you are changing while you change it. This lets the values
+// be nudged with the keyboard while looking at the result, then saved back to
+// config.txt so nothing is lost on restart.
+//
+//   F1        cycle which property is being adjusted
+//   F2 / F3   decrease / increase the selected property's first axis
+//   F4 / F6   decrease / increase the second axis (where the property has one)
+//             (F5 is deliberately avoided - it is the profiler dump key)
+//   F8        cycle the step size (fine 0.01 / medium 0.05 / coarse 0.20)
+//   F9        save current values to VR/config.txt
+//   F10       log all current wrist HUD values to the log file
+//
+// Every action logs what it did, so the log doubles as a record of what was
+// tried, and nothing has to be memorised while wearing a headset.
+void Game::UpdateLiveHUDAdjuster()
+{
+	if (!c_EnableLiveHUDAdjuster->Value())
+	{
+		return;
+	}
+
+	auto keyJustPressed = [](int vk, bool& wasDown) -> bool
+	{
+		bool isDown = (GetAsyncKeyState(vk) & 0x8000) != 0;
+		bool justPressed = isDown && !wasDown;
+		wasDown = isDown;
+		return justPressed;
+	};
+
+	static bool bF1 = false, bF2 = false, bF3 = false, bF4 = false;
+	static bool bF6 = false, bF8 = false, bF9 = false, bF10 = false;
+
+	// What each target adjusts, in a readable order
+	const char* targetNames[] = {
+		"WristHUDOffset (forward / left)",
+		"WristHUDOffset (up)",
+		"WristHUDRotation (X roll / Y)",
+		"WristHUDElementSpacing",
+		"WristHUDScale (ammo+health width)",
+		"WristHUDRadarScale (radar width)",
+	};
+	const int targetCount = 6;
+
+	if (keyJustPressed(VK_F1, bF1))
+	{
+		liveAdjustTarget = (liveAdjustTarget + 1) % targetCount;
+		Logger::log << "[HUDAdjust] Now adjusting: " << targetNames[liveAdjustTarget]
+			<< " (step " << liveAdjustStep << ")" << std::endl;
+	}
+
+	if (keyJustPressed(VK_F8, bF8))
+	{
+		if (liveAdjustStep < 0.02f) { liveAdjustStep = 0.05f; }
+		else if (liveAdjustStep < 0.1f) { liveAdjustStep = 0.20f; }
+		else { liveAdjustStep = 0.01f; }
+		Logger::log << "[HUDAdjust] Step size now " << liveAdjustStep << std::endl;
+	}
+
+	float axis1 = 0.0f;
+	float axis2 = 0.0f;
+	if (keyJustPressed(VK_F2, bF2)) { axis1 -= liveAdjustStep; }
+	if (keyJustPressed(VK_F3, bF3)) { axis1 += liveAdjustStep; }
+	if (keyJustPressed(VK_F4, bF4)) { axis2 -= liveAdjustStep; }
+	if (keyJustPressed(VK_F6, bF6)) { axis2 += liveAdjustStep; }
+
+	if (axis1 != 0.0f || axis2 != 0.0f)
+	{
+		switch (liveAdjustTarget)
+		{
+		case 0:
+		{
+			Vector3 v = c_WristHUDOffset->Value();
+			v.x += axis1;
+			v.y += axis2;
+			c_WristHUDOffset->SetValue(v);
+			Logger::log << "[HUDAdjust] WristHUDOffset = (" << v.x << ", " << v.y << ", " << v.z << ")" << std::endl;
+			break;
+		}
+		case 1:
+		{
+			Vector3 v = c_WristHUDOffset->Value();
+			v.z += axis1;
+			c_WristHUDOffset->SetValue(v);
+			Logger::log << "[HUDAdjust] WristHUDOffset = (" << v.x << ", " << v.y << ", " << v.z << ")" << std::endl;
+			break;
+		}
+		case 2:
+		{
+			// Rotation in degrees, so scale the step up to something useful
+			Vector3 v = c_WristHUDRotation->Value();
+			v.x += axis1 * 100.0f;
+			v.y += axis2 * 100.0f;
+			c_WristHUDRotation->SetValue(v);
+			Logger::log << "[HUDAdjust] WristHUDRotation = (" << v.x << ", " << v.y << ", " << v.z << ")" << std::endl;
+			break;
+		}
+		case 3:
+		{
+			float v = c_WristHUDElementSpacing->Value() + axis1;
+			c_WristHUDElementSpacing->SetValue(v);
+			Logger::log << "[HUDAdjust] WristHUDElementSpacing = " << v << std::endl;
+			break;
+		}
+		case 4:
+		{
+			float v = c_WristHUDScale->Value() + axis1;
+			if (v < 0.01f) { v = 0.01f; }
+			c_WristHUDScale->SetValue(v);
+			Logger::log << "[HUDAdjust] WristHUDScale = " << v << std::endl;
+			break;
+		}
+		case 5:
+		{
+			float v = c_WristHUDRadarScale->Value() + axis1;
+			if (v < 0.01f) { v = 0.01f; }
+			c_WristHUDRadarScale->SetValue(v);
+			Logger::log << "[HUDAdjust] WristHUDRadarScale = " << v << std::endl;
+			break;
+		}
+		default:
+			break;
+		}
+	}
+
+	if (keyJustPressed(VK_F10, bF10))
+	{
+		Vector3 off = c_WristHUDOffset->Value();
+		Vector3 rot = c_WristHUDRotation->Value();
+		Logger::log << "[HUDAdjust] ---- current values ----" << std::endl;
+		Logger::log << "[HUDAdjust] WristHUDOffset = (" << off.x << ", " << off.y << ", " << off.z << ")" << std::endl;
+		Logger::log << "[HUDAdjust] WristHUDRotation = (" << rot.x << ", " << rot.y << ", " << rot.z << ")" << std::endl;
+		Logger::log << "[HUDAdjust] WristHUDElementSpacing = " << c_WristHUDElementSpacing->Value() << std::endl;
+		Logger::log << "[HUDAdjust] WristHUDScale = " << c_WristHUDScale->Value() << std::endl;
+		Logger::log << "[HUDAdjust] WristHUDRadarScale = " << c_WristHUDRadarScale->Value() << std::endl;
+	}
+
+	if (keyJustPressed(VK_F9, bF9))
+	{
+		if (config.SaveToFile("VR/config.txt"))
+		{
+			Logger::log << "[HUDAdjust] Saved current values to VR/config.txt" << std::endl;
+		}
+		else
+		{
+			Logger::err << "[HUDAdjust] FAILED to save VR/config.txt" << std::endl;
+		}
+	}
+}
+
 void Game::UpdateInputs()
 {
 	VR_PROFILE_SCOPE(Game_UpdateInputs);
+
+	UpdateLiveHUDAdjuster();
 
 	// Hot reload this flag
 	bUse3DOFAiming = c_Use3DOFAiming->Value();
@@ -1294,6 +1448,7 @@ void Game::SetupConfigs()
 	c_WristHUDRotation = config.RegisterVector3("WristHUDRotation", "Rotation in degrees (X, Y, Z, same convention as ControllerRotation) applied to the wrist HUD so it faces you correctly. Needs tuning per controller", Vector3(0.0f, 0.0f, 0.0f));
 	c_WristHUDElementSpacing = config.RegisterFloat("WristHUDElementSpacing", "Vertical gap in metres between the three stacked wrist HUD elements", 0.04f);
 	c_WristHUDRadarScale = config.RegisterFloat("WristHUDRadarScale", "Width in metres of just the radar element. The radar crop is closer to square than ammo/health, so at the same width it renders much taller and can overlap health - kept separate so it can be sized down independently", 0.08f);
+	c_EnableLiveHUDAdjuster = config.RegisterBool("EnableLiveHUDAdjuster", "Enables keyboard hotkeys (F1 select, F2/F3 and F4/F6 adjust, F8 step size, F9 save to config, F10 log values) for tuning wrist HUD placement live in the headset instead of editing config and relaunching", false);
 	// Starting guesses based on a screenshot of the whole cloned texture, each
 	// crop is a fraction (0-1) of the underlying 640x640 render target. Needs
 	// visual tuning: adjust one edge at a time and compare against what's
