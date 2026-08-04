@@ -472,9 +472,12 @@ void OpenVR::PositionOverlay()
 // three elements stack top to bottom.
 static void SubmitWristElement(vr::IVROverlay* vrOverlay, vr::VROverlayHandle_t overlayHandle,
 	vr::TrackedDeviceIndex_t handIndex, const Vector3& svRight, const Vector3& svUp, const Vector3& svBackward,
-	const Vector3& offset, float stackUp, float scale,
+	const Vector3& offset, const Vector3& elementOffset, float stackUp, float scale,
 	float uMin, float vMin, float uMax, float vMax, ID3D11Texture2D* sourceTexture)
 {
+	// Per-element fine offset (forward, left, up), added on top of the shared
+	// group offset before the same SteamVR-space conversion applies to both
+	Vector3 combinedOffset = offset + elementOffset;
 	vrOverlay->SetOverlayWidthInMeters(overlayHandle, scale);
 
 	// Stacking previously used svUp (the ROTATED up basis) for the offset between
@@ -489,9 +492,9 @@ static void SubmitWristElement(vr::IVROverlay* vrOverlay, vr::VROverlayHandle_t 
 	const Vector3 stackDirection(0.0f, 1.0f, 0.0f);
 
 	vr::HmdMatrix34_t relativeTransform = {
-		svRight.x, svUp.x, svBackward.x, -offset.y + stackDirection.x * stackUp,
-		svRight.y, svUp.y, svBackward.y, offset.z + stackDirection.y * stackUp,
-		svRight.z, svUp.z, svBackward.z, -offset.x + stackDirection.z * stackUp
+		svRight.x, svUp.x, svBackward.x, -combinedOffset.y + stackDirection.x * stackUp,
+		svRight.y, svUp.y, svBackward.y, combinedOffset.z + stackDirection.y * stackUp,
+		svRight.z, svUp.z, svBackward.z, -combinedOffset.x + stackDirection.z * stackUp
 	};
 	vr::EVROverlayError transformErr = vrOverlay->SetOverlayTransformTrackedDeviceRelative(overlayHandle, handIndex, &relativeTransform);
 	if (transformErr != vr::VROverlayError_None)
@@ -629,16 +632,16 @@ void OpenVR::UpdateWristHUD()
 
 	// Health is the anchor (base offset, no stacking); ammo sits one spacing
 	// above it, radar one spacing below, all along the panel's own up axis
-	SubmitWristElement(vrOverlay, wristAmmoOverlay, handIndex, svRight, svUp, svBackward, offset, spacing, scale,
+	SubmitWristElement(vrOverlay, wristAmmoOverlay, handIndex, svRight, svUp, svBackward, offset, Game::instance.c_WristHUDAmmoOffset->Value(), spacing, scale,
 		Game::instance.c_WristHUDAmmoUMin->Value(), Game::instance.c_WristHUDAmmoVMin->Value(),
 		Game::instance.c_WristHUDAmmoUMax->Value(), Game::instance.c_WristHUDAmmoVMax->Value(), sourceTexture);
 
-	SubmitWristElement(vrOverlay, wristHealthOverlay, handIndex, svRight, svUp, svBackward, offset, 0.0f, scale,
+	SubmitWristElement(vrOverlay, wristHealthOverlay, handIndex, svRight, svUp, svBackward, offset, Game::instance.c_WristHUDHealthOffset->Value(), 0.0f, scale,
 		Game::instance.c_WristHUDHealthUMin->Value(), Game::instance.c_WristHUDHealthVMin->Value(),
 		Game::instance.c_WristHUDHealthUMax->Value(), Game::instance.c_WristHUDHealthVMax->Value(), sourceTexture);
 
 	float radarScale = Game::instance.c_WristHUDRadarScale->Value();
-	SubmitWristElement(vrOverlay, wristRadarOverlay, handIndex, svRight, svUp, svBackward, offset, -spacing, radarScale,
+	SubmitWristElement(vrOverlay, wristRadarOverlay, handIndex, svRight, svUp, svBackward, offset, Game::instance.c_WristHUDRadarOffset->Value(), -spacing, radarScale,
 		Game::instance.c_WristHUDRadarUMin->Value(), Game::instance.c_WristHUDRadarVMin->Value(),
 		Game::instance.c_WristHUDRadarUMax->Value(), Game::instance.c_WristHUDRadarVMax->Value(), sourceTexture);
 }
