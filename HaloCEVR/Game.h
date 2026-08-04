@@ -241,7 +241,14 @@ public:
 	FloatProperty* c_VerticalVehicleTurnAmount = nullptr;
 	BoolProperty* c_VehicleFaceAim = nullptr;
 	BoolProperty* c_ShowWristHUD = nullptr;
+	// WristHUDScale kept for backward compatibility with existing configs, no
+	// longer read directly - ammo/health now have their own scale like radar
 	FloatProperty* c_WristHUDScale = nullptr;
+	FloatProperty* c_WristHUDAmmoScale = nullptr;
+	FloatProperty* c_WristHUDHealthScale = nullptr;
+	FloatProperty* c_WristHUDAmmoHeightStretch = nullptr;
+	FloatProperty* c_WristHUDHealthHeightStretch = nullptr;
+	FloatProperty* c_WristHUDRadarHeightStretch = nullptr;
 	Vector3Property* c_WristHUDOffset = nullptr;
 	Vector3Property* c_WristHUDRotation = nullptr;
 	FloatProperty* c_WristHUDElementSpacing = nullptr;

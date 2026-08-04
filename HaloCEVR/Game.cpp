@@ -1003,19 +1003,24 @@ void Game::UpdateLiveHUDAdjuster()
 	static bool bF6 = false, bF8 = false, bF9 = false, bF10 = false;
 
 	// F2/F3 = first axis, F4/F6 = second axis, cycling through:
-	//   0-2: each element individually (left-right / forward-back)
-	//   3:   the whole group's position (left-right / forward-back)
-	//   4:   the whole group's tilt (roll / a second tilt axis)
-	//   5:   the whole group's height and yaw (up-down / rotate left-right)
+	//   0/1: radar position, then radar scale
+	//   2/3: health position, then health scale
+	//   4/5: ammo position, then ammo scale
+	//   6:   the whole group's position (left-right / forward-back)
+	//   7:   the whole group's tilt (roll / a second tilt axis)
+	//   8:   the whole group's height and yaw (up-down / rotate left-right)
 	const char* targetNames[] = {
-		"Radar (individual): F2/F3 left-right, F4/F6 forward-back",
-		"Health (individual): F2/F3 left-right, F4/F6 forward-back",
-		"Ammo (individual): F2/F3 left-right, F4/F6 forward-back",
+		"Radar position: F2/F3 left-right, F4/F6 forward-back",
+		"Radar scale: F2/F3 size, F4/F6 height stretch",
+		"Health position: F2/F3 left-right, F4/F6 forward-back",
+		"Health scale: F2/F3 size, F4/F6 height stretch",
+		"Ammo position: F2/F3 left-right, F4/F6 forward-back",
+		"Ammo scale: F2/F3 size, F4/F6 height stretch",
 		"Group position: F2/F3 left-right, F4/F6 forward-back",
 		"Group tilt: F2/F3 roll, F4/F6 second tilt axis",
 		"Group: F2/F3 up-down, F4/F6 rotate left-right",
 	};
-	const int targetCount = 6;
+	const int targetCount = 9;
 
 	if (keyJustPressed(VK_F1, bF1))
 	{
@@ -1046,7 +1051,7 @@ void Game::UpdateLiveHUDAdjuster()
 		// except targets 4/5 where the mapping is noted per case below.
 		switch (liveAdjustTarget)
 		{
-		case 0: // Radar, individual
+		case 0: // Radar, position
 		{
 			Vector3 v = c_WristHUDRadarOffset->Value();
 			v.y += axis1;
@@ -1055,7 +1060,21 @@ void Game::UpdateLiveHUDAdjuster()
 			Logger::log << "[HUDAdjust] WristHUDRadarOffset = (" << v.x << ", " << v.y << ", " << v.z << ")" << std::endl;
 			break;
 		}
-		case 1: // Health, individual
+		case 1: // Radar, scale (size / height stretch)
+		{
+			float sizeV = c_WristHUDRadarScale->Value() + axis1;
+			if (sizeV < 0.01f) { sizeV = 0.01f; }
+			c_WristHUDRadarScale->SetValue(sizeV);
+
+			float stretchV = c_WristHUDRadarHeightStretch->Value() + axis2;
+			if (stretchV < 0.1f) { stretchV = 0.1f; }
+			c_WristHUDRadarHeightStretch->SetValue(stretchV);
+
+			Logger::log << "[HUDAdjust] WristHUDRadarScale = " << sizeV
+				<< ", WristHUDRadarHeightStretch = " << stretchV << std::endl;
+			break;
+		}
+		case 2: // Health, position
 		{
 			Vector3 v = c_WristHUDHealthOffset->Value();
 			v.y += axis1;
@@ -1064,7 +1083,21 @@ void Game::UpdateLiveHUDAdjuster()
 			Logger::log << "[HUDAdjust] WristHUDHealthOffset = (" << v.x << ", " << v.y << ", " << v.z << ")" << std::endl;
 			break;
 		}
-		case 2: // Ammo, individual
+		case 3: // Health, scale (size / height stretch)
+		{
+			float sizeV = c_WristHUDHealthScale->Value() + axis1;
+			if (sizeV < 0.01f) { sizeV = 0.01f; }
+			c_WristHUDHealthScale->SetValue(sizeV);
+
+			float stretchV = c_WristHUDHealthHeightStretch->Value() + axis2;
+			if (stretchV < 0.1f) { stretchV = 0.1f; }
+			c_WristHUDHealthHeightStretch->SetValue(stretchV);
+
+			Logger::log << "[HUDAdjust] WristHUDHealthScale = " << sizeV
+				<< ", WristHUDHealthHeightStretch = " << stretchV << std::endl;
+			break;
+		}
+		case 4: // Ammo, position
 		{
 			Vector3 v = c_WristHUDAmmoOffset->Value();
 			v.y += axis1;
@@ -1073,7 +1106,21 @@ void Game::UpdateLiveHUDAdjuster()
 			Logger::log << "[HUDAdjust] WristHUDAmmoOffset = (" << v.x << ", " << v.y << ", " << v.z << ")" << std::endl;
 			break;
 		}
-		case 3: // Whole group, position (left-right / forward-back)
+		case 5: // Ammo, scale (size / height stretch)
+		{
+			float sizeV = c_WristHUDAmmoScale->Value() + axis1;
+			if (sizeV < 0.01f) { sizeV = 0.01f; }
+			c_WristHUDAmmoScale->SetValue(sizeV);
+
+			float stretchV = c_WristHUDAmmoHeightStretch->Value() + axis2;
+			if (stretchV < 0.1f) { stretchV = 0.1f; }
+			c_WristHUDAmmoHeightStretch->SetValue(stretchV);
+
+			Logger::log << "[HUDAdjust] WristHUDAmmoScale = " << sizeV
+				<< ", WristHUDAmmoHeightStretch = " << stretchV << std::endl;
+			break;
+		}
+		case 6: // Whole group, position (left-right / forward-back)
 		{
 			Vector3 v = c_WristHUDOffset->Value();
 			v.y += axis1;
@@ -1082,7 +1129,7 @@ void Game::UpdateLiveHUDAdjuster()
 			Logger::log << "[HUDAdjust] WristHUDOffset = (" << v.x << ", " << v.y << ", " << v.z << ")" << std::endl;
 			break;
 		}
-		case 4: // Whole group, tilt (roll / second tilt axis). Degrees, bigger step.
+		case 7: // Whole group, tilt (roll / second tilt axis). Degrees, bigger step.
 		{
 			Vector3 v = c_WristHUDRotation->Value();
 			v.x += axis1 * 100.0f;
@@ -1091,7 +1138,7 @@ void Game::UpdateLiveHUDAdjuster()
 			Logger::log << "[HUDAdjust] WristHUDRotation = (" << v.x << ", " << v.y << ", " << v.z << ")" << std::endl;
 			break;
 		}
-		case 5: // Whole group, up-down (offset.z) and yaw (rotation.z)
+		case 8: // Whole group, up-down (offset.z) and yaw (rotation.z)
 		{
 			Vector3 v = c_WristHUDOffset->Value();
 			v.z += axis1;
@@ -1118,14 +1165,18 @@ void Game::UpdateLiveHUDAdjuster()
 		Logger::log << "[HUDAdjust] WristHUDOffset = (" << off.x << ", " << off.y << ", " << off.z << ")" << std::endl;
 		Logger::log << "[HUDAdjust] WristHUDRotation = (" << rot.x << ", " << rot.y << ", " << rot.z << ")" << std::endl;
 		Logger::log << "[HUDAdjust] WristHUDElementSpacing = " << c_WristHUDElementSpacing->Value() << std::endl;
-		Logger::log << "[HUDAdjust] WristHUDScale = " << c_WristHUDScale->Value() << std::endl;
-		Logger::log << "[HUDAdjust] WristHUDRadarScale = " << c_WristHUDRadarScale->Value() << std::endl;
 		Vector3 ammoOff = c_WristHUDAmmoOffset->Value();
 		Vector3 healthOff = c_WristHUDHealthOffset->Value();
 		Vector3 radarOff = c_WristHUDRadarOffset->Value();
 		Logger::log << "[HUDAdjust] WristHUDAmmoOffset = (" << ammoOff.x << ", " << ammoOff.y << ", " << ammoOff.z << ")" << std::endl;
 		Logger::log << "[HUDAdjust] WristHUDHealthOffset = (" << healthOff.x << ", " << healthOff.y << ", " << healthOff.z << ")" << std::endl;
 		Logger::log << "[HUDAdjust] WristHUDRadarOffset = (" << radarOff.x << ", " << radarOff.y << ", " << radarOff.z << ")" << std::endl;
+		Logger::log << "[HUDAdjust] WristHUDAmmoScale = " << c_WristHUDAmmoScale->Value()
+			<< ", HeightStretch = " << c_WristHUDAmmoHeightStretch->Value() << std::endl;
+		Logger::log << "[HUDAdjust] WristHUDHealthScale = " << c_WristHUDHealthScale->Value()
+			<< ", HeightStretch = " << c_WristHUDHealthHeightStretch->Value() << std::endl;
+		Logger::log << "[HUDAdjust] WristHUDRadarScale = " << c_WristHUDRadarScale->Value()
+			<< ", HeightStretch = " << c_WristHUDRadarHeightStretch->Value() << std::endl;
 	}
 
 	if (keyJustPressed(VK_F9, bF9))
@@ -1466,6 +1517,11 @@ void Game::SetupConfigs()
 	c_VehicleFaceAim = config.RegisterBool("VehicleFaceAim", "EXPERIMENTAL. When true, vehicle aiming tracks where your head is looking, blended with the stick. Off by default", false);
 	c_ShowWristHUD = config.RegisterBool("ShowWristHUD", "CALIBRATION STEP. Clones the entire HUD texture onto the off hand wrist, visible only when raising the hand to look at it, so the real element layout can be inspected before building a cropped final version. Off by default", false);
 	c_WristHUDScale = config.RegisterFloat("WristHUDScale", "Width in metres of the wrist HUD overlay", 0.15f);
+	c_WristHUDAmmoScale = config.RegisterFloat("WristHUDAmmoScale", "Width in metres of just the ammo element", 0.15f);
+	c_WristHUDHealthScale = config.RegisterFloat("WristHUDHealthScale", "Width in metres of just the health element", 0.15f);
+	c_WristHUDAmmoHeightStretch = config.RegisterFloat("WristHUDAmmoHeightStretch", "Stretches the ammo element taller (>1) or shorter (<1) independently of its width", 1.0f);
+	c_WristHUDHealthHeightStretch = config.RegisterFloat("WristHUDHealthHeightStretch", "Stretches the health element taller (>1) or shorter (<1) independently of its width", 1.0f);
+	c_WristHUDRadarHeightStretch = config.RegisterFloat("WristHUDRadarHeightStretch", "Stretches the radar element taller (>1) or shorter (<1) independently of its width", 1.0f);
 	c_WristHUDOffset = config.RegisterVector3("WristHUDOffset", "The (forward, left, up) offset of the wrist HUD relative to the off hand controller", Vector3(0.0f, 0.0f, 0.05f));
 	c_WristHUDRotation = config.RegisterVector3("WristHUDRotation", "Rotation in degrees (X, Y, Z, same convention as ControllerRotation) applied to the wrist HUD so it faces you correctly. Needs tuning per controller", Vector3(0.0f, 0.0f, 0.0f));
 	c_WristHUDElementSpacing = config.RegisterFloat("WristHUDElementSpacing", "Vertical gap in metres between the three stacked wrist HUD elements", 0.04f);
