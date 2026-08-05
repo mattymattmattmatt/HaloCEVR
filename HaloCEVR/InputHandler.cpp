@@ -235,14 +235,34 @@ void InputHandler::UpdateInputs(bool bInVehicle)
 
 	UpdateHUDToggle();
 
-	// Toggle the floating crosshair when the bound action is pressed (edge detected)
+	// Toggle the floating crosshair when the bound action is pressed.
+	//
+	// Debounced rather than using plain edge detection: SteamVR digital actions
+	// were observed (during the grenade throw-on-release work) reporting many
+	// changes during what was physically a single continuous press, which with
+	// plain edge detection toggles several times and lands on an effectively
+	// random state. A press is only accepted once the input has read as released
+	// continuously for a short window first.
 	{
-		bool bTogglePressed = vr->GetBoolInput(ToggleCrosshair);
-		if (bTogglePressed && !bWasTogglingCrosshair)
+		bool bTogglePressedRaw = vr->GetBoolInput(ToggleCrosshair);
+
+		if (bTogglePressedRaw)
 		{
-			Game::instance.bShowCrosshair = !Game::instance.bShowCrosshair;
+			if (!bWasTogglingCrosshair && crosshairToggleReleaseTimer >= 0.08f)
+			{
+				Game::instance.bShowCrosshair = !Game::instance.bShowCrosshair;
+				bWasTogglingCrosshair = true;
+			}
+			crosshairToggleReleaseTimer = 0.0f;
 		}
-		bWasTogglingCrosshair = bTogglePressed;
+		else
+		{
+			crosshairToggleReleaseTimer += Game::instance.lastDeltaTime;
+			if (crosshairToggleReleaseTimer >= 0.08f)
+			{
+				bWasTogglingCrosshair = false;
+			}
+		}
 	}
 
 	if (Game::instance.c_EnableWeaponHolsters->Value())

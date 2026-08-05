@@ -836,12 +836,12 @@ bool Game::PreDrawCrosshair(short* anchorLocation)
 		return true;
 	}
 
-	// The crosshair has been toggled off, so skip drawing the world crosshair.
-	// The scope reticle is handled above and is unaffected.
-	if (!bShowCrosshair && anchorLocation && *anchorLocation == 4) // Centre = 4
-	{
-		return false;
-	}
+	// Note: the crosshair toggle is deliberately NOT handled here. Skipping the
+	// render leaves the crosshair's texture holding stale contents, which then
+	// interacts badly with the visibility gate at the SetCrosshairTransform call
+	// site. That call is itself the draw (it calls DrawRenderTarget), so gating
+	// there alone both hides the crosshair and keeps its texture up to date for
+	// when it is toggled back on.
 
 	crosshairRealSurface = Helpers::GetRenderTargets()[1].renderSurface;
 	if (anchorLocation && *anchorLocation == 4) // Centre = 4

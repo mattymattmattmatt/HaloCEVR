@@ -53,6 +53,7 @@ protected:
 	float grenadeReleaseTimer = 0.0f;
 	int grenadeThrowPulseFrames = 0;
 	bool bWasTogglingCrosshair = false;
+	float crosshairToggleReleaseTimer = 1.0f;
 	
 	InputBindingID Jump = 0;
 	InputBindingID SwitchGrenades = 0;

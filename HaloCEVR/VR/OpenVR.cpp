@@ -449,7 +449,11 @@ void OpenVR::PositionOverlay()
 
 	vr::HmdMatrix34_t transform;
 
-	if (Game::instance.c_HUDFollowsHeadPitch->Value())
+	// Head-following is deliberately skipped while a menu is open: a menu that
+	// pitches and rolls with every head movement is unpleasant to read and to
+	// point at, so menus always use the stock level, yaw-only placement even
+	// when head following is enabled for gameplay.
+	if (Game::instance.c_HUDFollowsHeadPitch->Value() && !bMouseVisible)
 	{
 		// Optional: place and orient the panel using the headset's FULL rotation,
 		// so it follows pitch and roll as well as yaw. The stock path below
