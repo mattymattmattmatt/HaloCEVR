@@ -1039,6 +1039,21 @@ void Game::UpdateLiveHUDAdjuster()
 	if (keyJustPressed(VK_F9, bF9)) { scaleChange -= liveAdjustStep; }
 	if (keyJustPressed(VK_F10, bF10)) { scaleChange += liveAdjustStep; }
 
+	// The panel is rolled by WristHUDRotation, and the offset is applied in the
+	// panel's own rolled frame - so pressing "left" moves along the panel's
+	// rolled left, which appears diagonal by exactly the roll angle. Counter-
+	// rotating the input by the same angle cancels that out, so the keys move
+	// the panel truly horizontally and vertically whatever the roll is set to.
+	{
+		const float rollRad = c_WristHUDRotation->Value().x * (3.14159265358979f / 180.0f);
+		const float c = cos(rollRad);
+		const float sn = sin(rollRad);
+		const float rotatedLeft = moveLeft * c + moveUp * sn;
+		const float rotatedUp = -moveLeft * sn + moveUp * c;
+		moveLeft = rotatedLeft;
+		moveUp = rotatedUp;
+	}
+
 	const bool bAnyChange = (moveLeft != 0.0f || moveUp != 0.0f || rotate != 0.0f || scaleChange != 0.0f);
 
 	if (bAnyChange)
