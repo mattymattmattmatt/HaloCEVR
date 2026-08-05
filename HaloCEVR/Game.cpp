@@ -1047,8 +1047,11 @@ void Game::UpdateLiveHUDAdjuster()
 		auto adjustElement = [&](const char* name, Vector3Property* offsetProp,
 			FloatProperty* rollProp, FloatProperty* scaleProp)
 		{
+			// moveLeft writes .x rather than .y: with the panel attached to the
+			// controller, .y was observed to move forward/back rather than
+			// left/right, while .z correctly moved vertically and is unchanged.
 			Vector3 off = offsetProp->Value();
-			off.y += moveLeft;
+			off.x += moveLeft;
 			off.z += moveUp;
 			offsetProp->SetValue(off);
 
@@ -1081,7 +1084,7 @@ void Game::UpdateLiveHUDAdjuster()
 			// rotation, and scale all three elements together so their relative
 			// sizes are preserved rather than converging.
 			Vector3 off = c_WristHUDOffset->Value();
-			off.y += moveLeft;
+			off.x += moveLeft;
 			off.z += moveUp;
 			c_WristHUDOffset->SetValue(off);
 
