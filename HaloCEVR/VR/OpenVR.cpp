@@ -473,19 +473,34 @@ void OpenVR::PositionOverlay()
 static void SubmitWristElement(vr::IVROverlay* vrOverlay, vr::VROverlayHandle_t overlayHandle,
 	vr::TrackedDeviceIndex_t handIndex, const Vector3& svRight, const Vector3& svUp, const Vector3& svBackward,
 	const Vector3& offset, const Vector3& elementOffset, float stackUp, float scale, float heightStretch,
-	float uMin, float vMin, float uMax, float vMax, ID3D11Texture2D* sourceTexture)
+	float elementRoll, float uMin, float vMin, float uMax, float vMax, ID3D11Texture2D* sourceTexture)
 {
 	// Per-element fine offset (forward, left, up), added on top of the shared
 	// group offset before the same SteamVR-space conversion applies to both
 	Vector3 combinedOffset = offset + elementOffset;
 	vrOverlay->SetOverlayWidthInMeters(overlayHandle, scale);
 
+	// Per-element roll: rotate this panel's own right/up basis vectors around its
+	// facing axis, so it spins in place without changing where it sits or which
+	// way it faces. Done per element here rather than via the shared rotation so
+	// each can be angled independently.
+	Vector3 rolledRight = svRight;
+	Vector3 rolledUp = svUp;
+	if (elementRoll != 0.0f)
+	{
+		const float rollRad = elementRoll * (3.14159265358979f / 180.0f);
+		const float c = cos(rollRad);
+		const float sn = sin(rollRad);
+		rolledRight = svRight * c + svUp * sn;
+		rolledUp = svUp * c - svRight * sn;
+	}
+
 	// SetOverlayWidthInMeters only controls width; there is no separate "set
 	// height" call. Height is instead stretched independently by scaling the
 	// magnitude of the panel's own up basis vector in the transform's rotation
 	// submatrix - a non-unit-length basis vector applies a scale as well as a
 	// direction, so this changes height without touching width or facing.
-	Vector3 stretchedUp = svUp * heightStretch;
+	Vector3 stretchedUp = rolledUp * heightStretch;
 
 	// Stacking previously used svUp (the ROTATED up basis) for the offset between
 	// elements. That is correct for orienting each panel's own tilt, but since
@@ -499,9 +514,9 @@ static void SubmitWristElement(vr::IVROverlay* vrOverlay, vr::VROverlayHandle_t 
 	const Vector3 stackDirection(0.0f, 1.0f, 0.0f);
 
 	vr::HmdMatrix34_t relativeTransform = {
-		svRight.x, stretchedUp.x, svBackward.x, -combinedOffset.y + stackDirection.x * stackUp,
-		svRight.y, stretchedUp.y, svBackward.y, combinedOffset.z + stackDirection.y * stackUp,
-		svRight.z, stretchedUp.z, svBackward.z, -combinedOffset.x + stackDirection.z * stackUp
+		rolledRight.x, stretchedUp.x, svBackward.x, -combinedOffset.y + stackDirection.x * stackUp,
+		rolledRight.y, stretchedUp.y, svBackward.y, combinedOffset.z + stackDirection.y * stackUp,
+		rolledRight.z, stretchedUp.z, svBackward.z, -combinedOffset.x + stackDirection.z * stackUp
 	};
 	vr::EVROverlayError transformErr = vrOverlay->SetOverlayTransformTrackedDeviceRelative(overlayHandle, handIndex, &relativeTransform);
 	if (transformErr != vr::VROverlayError_None)
@@ -640,16 +655,16 @@ void OpenVR::UpdateWristHUD()
 
 	// Health is the anchor (base offset, no stacking); ammo sits one spacing
 	// above it, radar one spacing below, all along the panel's own up axis
-	SubmitWristElement(vrOverlay, wristAmmoOverlay, handIndex, svRight, svUp, svBackward, offset, Game::instance.c_WristHUDAmmoOffset->Value(), spacing, Game::instance.c_WristHUDAmmoScale->Value(), Game::instance.c_WristHUDAmmoHeightStretch->Value(),
+	SubmitWristElement(vrOverlay, wristAmmoOverlay, handIndex, svRight, svUp, svBackward, offset, Game::instance.c_WristHUDAmmoOffset->Value(), spacing, Game::instance.c_WristHUDAmmoScale->Value(), Game::instance.c_WristHUDAmmoHeightStretch->Value(), Game::instance.c_WristHUDAmmoRoll->Value(),
 		Game::instance.c_WristHUDAmmoUMin->Value(), Game::instance.c_WristHUDAmmoVMin->Value(),
 		Game::instance.c_WristHUDAmmoUMax->Value(), Game::instance.c_WristHUDAmmoVMax->Value(), sourceTexture);
 
-	SubmitWristElement(vrOverlay, wristHealthOverlay, handIndex, svRight, svUp, svBackward, offset, Game::instance.c_WristHUDHealthOffset->Value(), 0.0f, Game::instance.c_WristHUDHealthScale->Value(), Game::instance.c_WristHUDHealthHeightStretch->Value(),
+	SubmitWristElement(vrOverlay, wristHealthOverlay, handIndex, svRight, svUp, svBackward, offset, Game::instance.c_WristHUDHealthOffset->Value(), 0.0f, Game::instance.c_WristHUDHealthScale->Value(), Game::instance.c_WristHUDHealthHeightStretch->Value(), Game::instance.c_WristHUDHealthRoll->Value(),
 		Game::instance.c_WristHUDHealthUMin->Value(), Game::instance.c_WristHUDHealthVMin->Value(),
 		Game::instance.c_WristHUDHealthUMax->Value(), Game::instance.c_WristHUDHealthVMax->Value(), sourceTexture);
 
 	float radarScale = Game::instance.c_WristHUDRadarScale->Value();
-	SubmitWristElement(vrOverlay, wristRadarOverlay, handIndex, svRight, svUp, svBackward, offset, Game::instance.c_WristHUDRadarOffset->Value(), -spacing, radarScale, Game::instance.c_WristHUDRadarHeightStretch->Value(),
+	SubmitWristElement(vrOverlay, wristRadarOverlay, handIndex, svRight, svUp, svBackward, offset, Game::instance.c_WristHUDRadarOffset->Value(), -spacing, radarScale, Game::instance.c_WristHUDRadarHeightStretch->Value(), Game::instance.c_WristHUDRadarRoll->Value(),
 		Game::instance.c_WristHUDRadarUMin->Value(), Game::instance.c_WristHUDRadarVMin->Value(),
 		Game::instance.c_WristHUDRadarUMax->Value(), Game::instance.c_WristHUDRadarVMax->Value(), sourceTexture);
 }

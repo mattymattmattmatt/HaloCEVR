@@ -977,6 +977,7 @@ void Game::PostThrowGrenade(HaloID& playerID)
 //   F1        cycle which property is being adjusted
 //   F2 / F3   decrease / increase the selected property's first axis
 //   F4 / F6   decrease / increase the second axis (where the property has one)
+//   F7 / F11  roll the selected element (in its scale/shape mode)
 //             (F5 is deliberately avoided - it is the profiler dump key)
 //   F8        cycle the step size (fine 0.01 / medium 0.05 / coarse 0.20)
 //   F9        save current values to VR/config.txt
@@ -1001,6 +1002,7 @@ void Game::UpdateLiveHUDAdjuster()
 
 	static bool bF1 = false, bF2 = false, bF3 = false, bF4 = false;
 	static bool bF6 = false, bF8 = false, bF9 = false, bF10 = false;
+	static bool bF7 = false, bF11 = false;
 
 	// F2/F3 = first axis, F4/F6 = second axis, cycling through:
 	//   0/1: radar position, then radar scale
@@ -1010,12 +1012,12 @@ void Game::UpdateLiveHUDAdjuster()
 	//   7:   the whole group's tilt (roll / a second tilt axis)
 	//   8:   the whole group's height and yaw (up-down / rotate left-right)
 	const char* targetNames[] = {
-		"Radar position: F2/F3 left-right, F4/F6 forward-back",
-		"Radar scale: F2/F3 size, F4/F6 height stretch",
-		"Health position: F2/F3 left-right, F4/F6 forward-back",
-		"Health scale: F2/F3 size, F4/F6 height stretch",
-		"Ammo position: F2/F3 left-right, F4/F6 forward-back",
-		"Ammo scale: F2/F3 size, F4/F6 height stretch",
+		"Radar position: F2/F3 left-right, F4/F6 up-down",
+		"Radar shape: F2/F3 size, F4/F6 height stretch, F7/F11 roll",
+		"Health position: F2/F3 left-right, F4/F6 up-down",
+		"Health shape: F2/F3 size, F4/F6 height stretch, F7/F11 roll",
+		"Ammo position: F2/F3 left-right, F4/F6 up-down",
+		"Ammo shape: F2/F3 size, F4/F6 height stretch, F7/F11 roll",
 		"Group position: F2/F3 left-right, F4/F6 forward-back",
 		"Group tilt: F2/F3 roll, F4/F6 second tilt axis",
 		"Group: F2/F3 up-down, F4/F6 rotate left-right",
@@ -1039,12 +1041,16 @@ void Game::UpdateLiveHUDAdjuster()
 
 	float axis1 = 0.0f;
 	float axis2 = 0.0f;
+	float axisRoll = 0.0f;
 	if (keyJustPressed(VK_F2, bF2)) { axis1 -= liveAdjustStep; }
 	if (keyJustPressed(VK_F3, bF3)) { axis1 += liveAdjustStep; }
 	if (keyJustPressed(VK_F4, bF4)) { axis2 -= liveAdjustStep; }
 	if (keyJustPressed(VK_F6, bF6)) { axis2 += liveAdjustStep; }
+	// F7 rolls the selected element, available in the scale/shape modes
+	if (keyJustPressed(VK_F7, bF7)) { axisRoll += liveAdjustStep; }
+	if (keyJustPressed(VK_F11, bF11)) { axisRoll -= liveAdjustStep; }
 
-	if (axis1 != 0.0f || axis2 != 0.0f)
+	if (axis1 != 0.0f || axis2 != 0.0f || axisRoll != 0.0f)
 	{
 		// Mod convention: offset.x = forward, offset.y = left, offset.z = up.
 		// axis1 (F2/F3) moves left-right, axis2 (F4/F6) moves forward-back,
@@ -1053,9 +1059,13 @@ void Game::UpdateLiveHUDAdjuster()
 		{
 		case 0: // Radar, position
 		{
+			// Move on the panel's own flat plane: left-right and up-down.
+			// Previously axis2 moved v.x (forward/back, towards and away from
+			// the player), which is not useful for laying elements out on a
+			// flat panel and made them appear to shift depth rather than rise.
 			Vector3 v = c_WristHUDRadarOffset->Value();
 			v.y += axis1;
-			v.x += axis2;
+			v.z += axis2;
 			c_WristHUDRadarOffset->SetValue(v);
 			Logger::log << "[HUDAdjust] WristHUDRadarOffset = (" << v.x << ", " << v.y << ", " << v.z << ")" << std::endl;
 			break;
@@ -1070,15 +1080,28 @@ void Game::UpdateLiveHUDAdjuster()
 			if (stretchV < 0.1f) { stretchV = 0.1f; }
 			c_WristHUDRadarHeightStretch->SetValue(stretchV);
 
+			// Roll shares this mode on the F7 key, so each element's full
+			// move/rotate/scale set is reachable without another cycle step
+			if (axisRoll != 0.0f)
+			{
+				float rollV = c_WristHUDRadarRoll->Value() + axisRoll * 100.0f;
+				c_WristHUDRadarRoll->SetValue(rollV);
+				Logger::log << "[HUDAdjust] WristHUDRadarRoll = " << rollV << std::endl;
+			}
+
 			Logger::log << "[HUDAdjust] WristHUDRadarScale = " << sizeV
 				<< ", WristHUDRadarHeightStretch = " << stretchV << std::endl;
 			break;
 		}
 		case 2: // Health, position
 		{
+			// Move on the panel's own flat plane: left-right and up-down.
+			// Previously axis2 moved v.x (forward/back, towards and away from
+			// the player), which is not useful for laying elements out on a
+			// flat panel and made them appear to shift depth rather than rise.
 			Vector3 v = c_WristHUDHealthOffset->Value();
 			v.y += axis1;
-			v.x += axis2;
+			v.z += axis2;
 			c_WristHUDHealthOffset->SetValue(v);
 			Logger::log << "[HUDAdjust] WristHUDHealthOffset = (" << v.x << ", " << v.y << ", " << v.z << ")" << std::endl;
 			break;
@@ -1093,15 +1116,28 @@ void Game::UpdateLiveHUDAdjuster()
 			if (stretchV < 0.1f) { stretchV = 0.1f; }
 			c_WristHUDHealthHeightStretch->SetValue(stretchV);
 
+			// Roll shares this mode on the F7 key, so each element's full
+			// move/rotate/scale set is reachable without another cycle step
+			if (axisRoll != 0.0f)
+			{
+				float rollV = c_WristHUDHealthRoll->Value() + axisRoll * 100.0f;
+				c_WristHUDHealthRoll->SetValue(rollV);
+				Logger::log << "[HUDAdjust] WristHUDHealthRoll = " << rollV << std::endl;
+			}
+
 			Logger::log << "[HUDAdjust] WristHUDHealthScale = " << sizeV
 				<< ", WristHUDHealthHeightStretch = " << stretchV << std::endl;
 			break;
 		}
 		case 4: // Ammo, position
 		{
+			// Move on the panel's own flat plane: left-right and up-down.
+			// Previously axis2 moved v.x (forward/back, towards and away from
+			// the player), which is not useful for laying elements out on a
+			// flat panel and made them appear to shift depth rather than rise.
 			Vector3 v = c_WristHUDAmmoOffset->Value();
 			v.y += axis1;
-			v.x += axis2;
+			v.z += axis2;
 			c_WristHUDAmmoOffset->SetValue(v);
 			Logger::log << "[HUDAdjust] WristHUDAmmoOffset = (" << v.x << ", " << v.y << ", " << v.z << ")" << std::endl;
 			break;
@@ -1115,6 +1151,15 @@ void Game::UpdateLiveHUDAdjuster()
 			float stretchV = c_WristHUDAmmoHeightStretch->Value() + axis2;
 			if (stretchV < 0.1f) { stretchV = 0.1f; }
 			c_WristHUDAmmoHeightStretch->SetValue(stretchV);
+
+			// Roll shares this mode on the F7 key, so each element's full
+			// move/rotate/scale set is reachable without another cycle step
+			if (axisRoll != 0.0f)
+			{
+				float rollV = c_WristHUDAmmoRoll->Value() + axisRoll * 100.0f;
+				c_WristHUDAmmoRoll->SetValue(rollV);
+				Logger::log << "[HUDAdjust] WristHUDAmmoRoll = " << rollV << std::endl;
+			}
 
 			Logger::log << "[HUDAdjust] WristHUDAmmoScale = " << sizeV
 				<< ", WristHUDAmmoHeightStretch = " << stretchV << std::endl;
@@ -1530,6 +1575,9 @@ void Game::SetupConfigs()
 	c_WristHUDAmmoOffset = config.RegisterVector3("WristHUDAmmoOffset", "Fine (forward, left, up) position of just the ammo element, on top of the shared WristHUDOffset", Vector3(0.0f, 0.0f, 0.0f));
 	c_WristHUDHealthOffset = config.RegisterVector3("WristHUDHealthOffset", "Fine (forward, left, up) position of just the health element, on top of the shared WristHUDOffset", Vector3(0.0f, 0.0f, 0.0f));
 	c_WristHUDRadarOffset = config.RegisterVector3("WristHUDRadarOffset", "Fine (forward, left, up) position of just the radar element, on top of the shared WristHUDOffset", Vector3(0.0f, 0.0f, 0.0f));
+	c_WristHUDAmmoRoll = config.RegisterFloat("WristHUDAmmoRoll", "Extra roll in degrees for just the ammo element, on top of the shared WristHUDRotation", 0.0f);
+	c_WristHUDHealthRoll = config.RegisterFloat("WristHUDHealthRoll", "Extra roll in degrees for just the health element, on top of the shared WristHUDRotation", 0.0f);
+	c_WristHUDRadarRoll = config.RegisterFloat("WristHUDRadarRoll", "Extra roll in degrees for just the radar element, on top of the shared WristHUDRotation", 0.0f);
 	// Starting guesses based on a screenshot of the whole cloned texture, each
 	// crop is a fraction (0-1) of the underlying 640x640 render target. Needs
 	// visual tuning: adjust one edge at a time and compare against what's
