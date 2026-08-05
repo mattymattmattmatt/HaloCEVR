@@ -447,20 +447,49 @@ void OpenVR::PositionOverlay()
 
 	float distance = bMouseVisible ? Game::instance.c_MenuOverlayDistance->Value() : Game::instance.c_UIOverlayDistance->Value();
 
-	float len = sqrt(mat.m[0][2] * mat.m[0][2] + mat.m[2][2] * mat.m[2][2]);
+	vr::HmdMatrix34_t transform;
 
-	distance /= len;
+	if (Game::instance.c_HUDFollowsHeadPitch->Value())
+	{
+		// Optional: place and orient the panel using the headset's FULL rotation,
+		// so it follows pitch and roll as well as yaw. The stock path below
+		// deliberately uses yaw only, keeping the panel level regardless of head
+		// tilt; this is off by default so that behaviour is unchanged unless asked
+		// for.
+		//
+		// Column 2 of the pose matrix is the headset's backward axis, so negating
+		// it gives true forward including any pitch/roll, rather than the
+		// horizontally flattened forward the yaw-only path uses.
+		position.v[0] += mat.m[0][2] * -distance;
+		position.v[1] += mat.m[1][2] * -distance;
+		position.v[2] += mat.m[2][2] * -distance;
 
-	position.v[0] += mat.m[0][2] * -distance;
-	position.v[2] += mat.m[2][2] * -distance;
+		// Reuse the headset's own rotation basis directly. The 0.75f vertical
+		// scale from the stock path is preserved by scaling the up column, so the
+		// panel keeps the same proportions in both modes.
+		transform = {
+			mat.m[0][0], mat.m[0][1] * 0.75f, mat.m[0][2], position.v[0],
+			mat.m[1][0], mat.m[1][1] * 0.75f, mat.m[1][2], position.v[1],
+			mat.m[2][0], mat.m[2][1] * 0.75f, mat.m[2][2], position.v[2]
+		};
+	}
+	else
+	{
+		float len = sqrt(mat.m[0][2] * mat.m[0][2] + mat.m[2][2] * mat.m[2][2]);
 
-	// Rotate only around Y for yaw
-	float yaw = atan2(-mat.m[2][0], mat.m[2][2]);
-	vr::HmdMatrix34_t transform = {
-		cos(yaw), 0, sin(yaw), position.v[0],
-		0, 0.75f, 0, position.v[1],
-		-sin(yaw), 0, cos(yaw), position.v[2]
-	};
+		distance /= len;
+
+		position.v[0] += mat.m[0][2] * -distance;
+		position.v[2] += mat.m[2][2] * -distance;
+
+		// Rotate only around Y for yaw
+		float yaw = atan2(-mat.m[2][0], mat.m[2][2]);
+		transform = {
+			cos(yaw), 0, sin(yaw), position.v[0],
+			0, 0.75f, 0, position.v[1],
+			-sin(yaw), 0, cos(yaw), position.v[2]
+		};
+	}
 
 	// Set the transform for the overlay
 	vrOverlay->SetOverlayTransformAbsolute(uiOverlay, vr::TrackingUniverseStanding, &transform);

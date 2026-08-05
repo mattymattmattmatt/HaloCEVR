@@ -254,6 +254,7 @@ public:
 	FloatProperty* c_WristHUDElementSpacing = nullptr;
 	FloatProperty* c_WristHUDRadarScale = nullptr;
 	BoolProperty* c_EnableLiveHUDAdjuster = nullptr;
+	BoolProperty* c_HUDFollowsHeadPitch = nullptr;
 	// Per-element fine position, on top of the shared WristHUDOffset/spacing
 	Vector3Property* c_WristHUDAmmoOffset = nullptr;
 	Vector3Property* c_WristHUDHealthOffset = nullptr;
