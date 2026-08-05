@@ -969,22 +969,21 @@ void Game::PostThrowGrenade(HaloID& playerID)
 
 // Live in-headset HUD placement adjuster.
 //
-// Positioning VR elements by editing config and relaunching is extremely slow -
-// you cannot see what you are changing while you change it. This lets the values
-// be nudged with the keyboard while looking at the result, then saved back to
-// config.txt so nothing is lost on restart.
+// Positioning VR elements by editing config and relaunching is slow - you cannot
+// see what you are changing while you change it. This lets each element be moved,
+// rotated and scaled with the keyboard while looking at the result, then saved
+// back to config.txt so nothing is lost on restart.
 //
-//   F1        cycle which property is being adjusted
-//   F2 / F3   decrease / increase the selected property's first axis
-//   F4 / F6   decrease / increase the second axis (where the property has one)
-//   F7 / F11  roll the selected element (in its scale/shape mode)
-//             (F5 is deliberately avoided - it is the profiler dump key)
-//   F8        cycle the step size (fine 0.01 / medium 0.05 / coarse 0.20)
-//   F9        save current values to VR/config.txt
-//   F10       log all current wrist HUD values to the log file
+//   F1   cycle target: Radar > Ammo > Health > All three grouped > back to Radar
+//   F2   move left            F3   move right
+//   F4   move up              F6   move down
+//   F7   rotate anticlockwise F8   rotate clockwise
+//   F9   scale down           F10  scale up
+//   F11  save to config       F12  log all values
+//   Ins  cycle step size (fine 0.01 / medium 0.05 / coarse 0.20)
 //
-// Every action logs what it did, so the log doubles as a record of what was
-// tried, and nothing has to be memorised while wearing a headset.
+// Every action logs what it did, so nothing has to be memorised while wearing a
+// headset and the log doubles as a record of what was tried.
 void Game::UpdateLiveHUDAdjuster()
 {
 	if (!c_EnableLiveHUDAdjuster->Value())
@@ -1000,29 +999,12 @@ void Game::UpdateLiveHUDAdjuster()
 		return justPressed;
 	};
 
-	static bool bF1 = false, bF2 = false, bF3 = false, bF4 = false;
-	static bool bF6 = false, bF8 = false, bF9 = false, bF10 = false;
-	static bool bF7 = false, bF11 = false;
+	static bool bF1 = false, bF2 = false, bF3 = false, bF4 = false, bF6 = false;
+	static bool bF7 = false, bF8 = false, bF9 = false, bF10 = false;
+	static bool bF11 = false, bF12 = false, bInsert = false;
 
-	// F2/F3 = first axis, F4/F6 = second axis, cycling through:
-	//   0/1: radar position, then radar scale
-	//   2/3: health position, then health scale
-	//   4/5: ammo position, then ammo scale
-	//   6:   the whole group's position (left-right / forward-back)
-	//   7:   the whole group's tilt (roll / a second tilt axis)
-	//   8:   the whole group's height and yaw (up-down / rotate left-right)
-	const char* targetNames[] = {
-		"Radar position: F2/F3 left-right, F4/F6 up-down",
-		"Radar shape: F2/F3 size, F4/F6 height stretch, F7/F11 roll",
-		"Health position: F2/F3 left-right, F4/F6 up-down",
-		"Health shape: F2/F3 size, F4/F6 height stretch, F7/F11 roll",
-		"Ammo position: F2/F3 left-right, F4/F6 up-down",
-		"Ammo shape: F2/F3 size, F4/F6 height stretch, F7/F11 roll",
-		"Group position: F2/F3 left-right, F4/F6 forward-back",
-		"Group tilt: F2/F3 roll, F4/F6 second tilt axis",
-		"Group: F2/F3 up-down, F4/F6 rotate left-right",
-	};
-	const int targetCount = 9;
+	const char* targetNames[] = { "Radar", "Ammo", "Health", "All three (grouped)" };
+	const int targetCount = 4;
 
 	if (keyJustPressed(VK_F1, bF1))
 	{
@@ -1031,7 +1013,9 @@ void Game::UpdateLiveHUDAdjuster()
 			<< " (step " << liveAdjustStep << ")" << std::endl;
 	}
 
-	if (keyJustPressed(VK_F8, bF8))
+	// Step size cycling. Insert is used rather than an F-key because F5 is the
+	// profiler dump key and every other F-key is taken by the controls above.
+	if (keyJustPressed(VK_INSERT, bInsert))
 	{
 		if (liveAdjustStep < 0.02f) { liveAdjustStep = 0.05f; }
 		else if (liveAdjustStep < 0.1f) { liveAdjustStep = 0.20f; }
@@ -1039,162 +1023,87 @@ void Game::UpdateLiveHUDAdjuster()
 		Logger::log << "[HUDAdjust] Step size now " << liveAdjustStep << std::endl;
 	}
 
-	float axis1 = 0.0f;
-	float axis2 = 0.0f;
-	float axisRoll = 0.0f;
-	if (keyJustPressed(VK_F2, bF2)) { axis1 -= liveAdjustStep; }
-	if (keyJustPressed(VK_F3, bF3)) { axis1 += liveAdjustStep; }
-	if (keyJustPressed(VK_F4, bF4)) { axis2 -= liveAdjustStep; }
-	if (keyJustPressed(VK_F6, bF6)) { axis2 += liveAdjustStep; }
-	// F7 rolls the selected element, available in the scale/shape modes
-	if (keyJustPressed(VK_F7, bF7)) { axisRoll += liveAdjustStep; }
-	if (keyJustPressed(VK_F11, bF11)) { axisRoll -= liveAdjustStep; }
+	// Movement is on the panel's own flat plane: left-right and up-down.
+	// Mod convention is offset.y = left, offset.z = up.
+	float moveLeft = 0.0f;
+	float moveUp = 0.0f;
+	float rotate = 0.0f;
+	float scaleChange = 0.0f;
 
-	if (axis1 != 0.0f || axis2 != 0.0f || axisRoll != 0.0f)
+	if (keyJustPressed(VK_F2, bF2)) { moveLeft += liveAdjustStep; }
+	if (keyJustPressed(VK_F3, bF3)) { moveLeft -= liveAdjustStep; }
+	if (keyJustPressed(VK_F4, bF4)) { moveUp += liveAdjustStep; }
+	if (keyJustPressed(VK_F6, bF6)) { moveUp -= liveAdjustStep; }
+	if (keyJustPressed(VK_F7, bF7)) { rotate += liveAdjustStep * 100.0f; }
+	if (keyJustPressed(VK_F8, bF8)) { rotate -= liveAdjustStep * 100.0f; }
+	if (keyJustPressed(VK_F9, bF9)) { scaleChange -= liveAdjustStep; }
+	if (keyJustPressed(VK_F10, bF10)) { scaleChange += liveAdjustStep; }
+
+	const bool bAnyChange = (moveLeft != 0.0f || moveUp != 0.0f || rotate != 0.0f || scaleChange != 0.0f);
+
+	if (bAnyChange)
 	{
-		// Mod convention: offset.x = forward, offset.y = left, offset.z = up.
-		// axis1 (F2/F3) moves left-right, axis2 (F4/F6) moves forward-back,
-		// except targets 4/5 where the mapping is noted per case below.
+		// Applies a change to one element's own offset/roll/scale properties
+		auto adjustElement = [&](const char* name, Vector3Property* offsetProp,
+			FloatProperty* rollProp, FloatProperty* scaleProp)
+		{
+			Vector3 off = offsetProp->Value();
+			off.y += moveLeft;
+			off.z += moveUp;
+			offsetProp->SetValue(off);
+
+			float roll = rollProp->Value() + rotate;
+			rollProp->SetValue(roll);
+
+			float scale = scaleProp->Value() + scaleChange;
+			if (scale < 0.01f) { scale = 0.01f; }
+			scaleProp->SetValue(scale);
+
+			Logger::log << "[HUDAdjust] " << name
+				<< " offset=(" << off.x << ", " << off.y << ", " << off.z << ")"
+				<< " roll=" << roll << " scale=" << scale << std::endl;
+		};
+
 		switch (liveAdjustTarget)
 		{
-		case 0: // Radar, position
-		{
-			// Move on the panel's own flat plane: left-right and up-down.
-			// Previously axis2 moved v.x (forward/back, towards and away from
-			// the player), which is not useful for laying elements out on a
-			// flat panel and made them appear to shift depth rather than rise.
-			Vector3 v = c_WristHUDRadarOffset->Value();
-			v.y += axis1;
-			v.z += axis2;
-			c_WristHUDRadarOffset->SetValue(v);
-			Logger::log << "[HUDAdjust] WristHUDRadarOffset = (" << v.x << ", " << v.y << ", " << v.z << ")" << std::endl;
+		case 0:
+			adjustElement("Radar", c_WristHUDRadarOffset, c_WristHUDRadarRoll, c_WristHUDRadarScale);
 			break;
-		}
-		case 1: // Radar, scale (size / height stretch)
+		case 1:
+			adjustElement("Ammo", c_WristHUDAmmoOffset, c_WristHUDAmmoRoll, c_WristHUDAmmoScale);
+			break;
+		case 2:
+			adjustElement("Health", c_WristHUDHealthOffset, c_WristHUDHealthRoll, c_WristHUDHealthScale);
+			break;
+		case 3:
 		{
-			float sizeV = c_WristHUDRadarScale->Value() + axis1;
-			if (sizeV < 0.01f) { sizeV = 0.01f; }
-			c_WristHUDRadarScale->SetValue(sizeV);
+			// Grouped: move and roll the whole panel via the shared offset and
+			// rotation, and scale all three elements together so their relative
+			// sizes are preserved rather than converging.
+			Vector3 off = c_WristHUDOffset->Value();
+			off.y += moveLeft;
+			off.z += moveUp;
+			c_WristHUDOffset->SetValue(off);
 
-			float stretchV = c_WristHUDRadarHeightStretch->Value() + axis2;
-			if (stretchV < 0.1f) { stretchV = 0.1f; }
-			c_WristHUDRadarHeightStretch->SetValue(stretchV);
+			Vector3 rot = c_WristHUDRotation->Value();
+			rot.x += rotate;
+			c_WristHUDRotation->SetValue(rot);
 
-			// Roll shares this mode on the F7 key, so each element's full
-			// move/rotate/scale set is reachable without another cycle step
-			if (axisRoll != 0.0f)
+			if (scaleChange != 0.0f)
 			{
-				float rollV = c_WristHUDRadarRoll->Value() + axisRoll * 100.0f;
-				c_WristHUDRadarRoll->SetValue(rollV);
-				Logger::log << "[HUDAdjust] WristHUDRadarRoll = " << rollV << std::endl;
+				FloatProperty* scaleProps[] = { c_WristHUDRadarScale, c_WristHUDAmmoScale, c_WristHUDHealthScale };
+				for (FloatProperty* prop : scaleProps)
+				{
+					float v = prop->Value() + scaleChange;
+					if (v < 0.01f) { v = 0.01f; }
+					prop->SetValue(v);
+				}
 			}
 
-			Logger::log << "[HUDAdjust] WristHUDRadarScale = " << sizeV
-				<< ", WristHUDRadarHeightStretch = " << stretchV << std::endl;
-			break;
-		}
-		case 2: // Health, position
-		{
-			// Move on the panel's own flat plane: left-right and up-down.
-			// Previously axis2 moved v.x (forward/back, towards and away from
-			// the player), which is not useful for laying elements out on a
-			// flat panel and made them appear to shift depth rather than rise.
-			Vector3 v = c_WristHUDHealthOffset->Value();
-			v.y += axis1;
-			v.z += axis2;
-			c_WristHUDHealthOffset->SetValue(v);
-			Logger::log << "[HUDAdjust] WristHUDHealthOffset = (" << v.x << ", " << v.y << ", " << v.z << ")" << std::endl;
-			break;
-		}
-		case 3: // Health, scale (size / height stretch)
-		{
-			float sizeV = c_WristHUDHealthScale->Value() + axis1;
-			if (sizeV < 0.01f) { sizeV = 0.01f; }
-			c_WristHUDHealthScale->SetValue(sizeV);
-
-			float stretchV = c_WristHUDHealthHeightStretch->Value() + axis2;
-			if (stretchV < 0.1f) { stretchV = 0.1f; }
-			c_WristHUDHealthHeightStretch->SetValue(stretchV);
-
-			// Roll shares this mode on the F7 key, so each element's full
-			// move/rotate/scale set is reachable without another cycle step
-			if (axisRoll != 0.0f)
-			{
-				float rollV = c_WristHUDHealthRoll->Value() + axisRoll * 100.0f;
-				c_WristHUDHealthRoll->SetValue(rollV);
-				Logger::log << "[HUDAdjust] WristHUDHealthRoll = " << rollV << std::endl;
-			}
-
-			Logger::log << "[HUDAdjust] WristHUDHealthScale = " << sizeV
-				<< ", WristHUDHealthHeightStretch = " << stretchV << std::endl;
-			break;
-		}
-		case 4: // Ammo, position
-		{
-			// Move on the panel's own flat plane: left-right and up-down.
-			// Previously axis2 moved v.x (forward/back, towards and away from
-			// the player), which is not useful for laying elements out on a
-			// flat panel and made them appear to shift depth rather than rise.
-			Vector3 v = c_WristHUDAmmoOffset->Value();
-			v.y += axis1;
-			v.z += axis2;
-			c_WristHUDAmmoOffset->SetValue(v);
-			Logger::log << "[HUDAdjust] WristHUDAmmoOffset = (" << v.x << ", " << v.y << ", " << v.z << ")" << std::endl;
-			break;
-		}
-		case 5: // Ammo, scale (size / height stretch)
-		{
-			float sizeV = c_WristHUDAmmoScale->Value() + axis1;
-			if (sizeV < 0.01f) { sizeV = 0.01f; }
-			c_WristHUDAmmoScale->SetValue(sizeV);
-
-			float stretchV = c_WristHUDAmmoHeightStretch->Value() + axis2;
-			if (stretchV < 0.1f) { stretchV = 0.1f; }
-			c_WristHUDAmmoHeightStretch->SetValue(stretchV);
-
-			// Roll shares this mode on the F7 key, so each element's full
-			// move/rotate/scale set is reachable without another cycle step
-			if (axisRoll != 0.0f)
-			{
-				float rollV = c_WristHUDAmmoRoll->Value() + axisRoll * 100.0f;
-				c_WristHUDAmmoRoll->SetValue(rollV);
-				Logger::log << "[HUDAdjust] WristHUDAmmoRoll = " << rollV << std::endl;
-			}
-
-			Logger::log << "[HUDAdjust] WristHUDAmmoScale = " << sizeV
-				<< ", WristHUDAmmoHeightStretch = " << stretchV << std::endl;
-			break;
-		}
-		case 6: // Whole group, position (left-right / forward-back)
-		{
-			Vector3 v = c_WristHUDOffset->Value();
-			v.y += axis1;
-			v.x += axis2;
-			c_WristHUDOffset->SetValue(v);
-			Logger::log << "[HUDAdjust] WristHUDOffset = (" << v.x << ", " << v.y << ", " << v.z << ")" << std::endl;
-			break;
-		}
-		case 7: // Whole group, tilt (roll / second tilt axis). Degrees, bigger step.
-		{
-			Vector3 v = c_WristHUDRotation->Value();
-			v.x += axis1 * 100.0f;
-			v.y += axis2 * 100.0f;
-			c_WristHUDRotation->SetValue(v);
-			Logger::log << "[HUDAdjust] WristHUDRotation = (" << v.x << ", " << v.y << ", " << v.z << ")" << std::endl;
-			break;
-		}
-		case 8: // Whole group, up-down (offset.z) and yaw (rotation.z)
-		{
-			Vector3 v = c_WristHUDOffset->Value();
-			v.z += axis1;
-			c_WristHUDOffset->SetValue(v);
-
-			Vector3 r = c_WristHUDRotation->Value();
-			r.z += axis2 * 100.0f;
-			c_WristHUDRotation->SetValue(r);
-
-			Logger::log << "[HUDAdjust] WristHUDOffset.z = " << v.z
-				<< ", WristHUDRotation.z = " << r.z << std::endl;
+			Logger::log << "[HUDAdjust] Group offset=(" << off.x << ", " << off.y << ", " << off.z << ")"
+				<< " rotation=(" << rot.x << ", " << rot.y << ", " << rot.z << ")"
+				<< " scales=" << c_WristHUDRadarScale->Value() << "/"
+				<< c_WristHUDAmmoScale->Value() << "/" << c_WristHUDHealthScale->Value() << std::endl;
 			break;
 		}
 		default:
@@ -1202,29 +1111,27 @@ void Game::UpdateLiveHUDAdjuster()
 		}
 	}
 
-	if (keyJustPressed(VK_F10, bF10))
+	if (keyJustPressed(VK_F12, bF12))
 	{
 		Vector3 off = c_WristHUDOffset->Value();
 		Vector3 rot = c_WristHUDRotation->Value();
+		Vector3 radarOff = c_WristHUDRadarOffset->Value();
+		Vector3 ammoOff = c_WristHUDAmmoOffset->Value();
+		Vector3 healthOff = c_WristHUDHealthOffset->Value();
+
 		Logger::log << "[HUDAdjust] ---- current values ----" << std::endl;
 		Logger::log << "[HUDAdjust] WristHUDOffset = (" << off.x << ", " << off.y << ", " << off.z << ")" << std::endl;
 		Logger::log << "[HUDAdjust] WristHUDRotation = (" << rot.x << ", " << rot.y << ", " << rot.z << ")" << std::endl;
 		Logger::log << "[HUDAdjust] WristHUDElementSpacing = " << c_WristHUDElementSpacing->Value() << std::endl;
-		Vector3 ammoOff = c_WristHUDAmmoOffset->Value();
-		Vector3 healthOff = c_WristHUDHealthOffset->Value();
-		Vector3 radarOff = c_WristHUDRadarOffset->Value();
-		Logger::log << "[HUDAdjust] WristHUDAmmoOffset = (" << ammoOff.x << ", " << ammoOff.y << ", " << ammoOff.z << ")" << std::endl;
-		Logger::log << "[HUDAdjust] WristHUDHealthOffset = (" << healthOff.x << ", " << healthOff.y << ", " << healthOff.z << ")" << std::endl;
-		Logger::log << "[HUDAdjust] WristHUDRadarOffset = (" << radarOff.x << ", " << radarOff.y << ", " << radarOff.z << ")" << std::endl;
-		Logger::log << "[HUDAdjust] WristHUDAmmoScale = " << c_WristHUDAmmoScale->Value()
-			<< ", HeightStretch = " << c_WristHUDAmmoHeightStretch->Value() << std::endl;
-		Logger::log << "[HUDAdjust] WristHUDHealthScale = " << c_WristHUDHealthScale->Value()
-			<< ", HeightStretch = " << c_WristHUDHealthHeightStretch->Value() << std::endl;
-		Logger::log << "[HUDAdjust] WristHUDRadarScale = " << c_WristHUDRadarScale->Value()
-			<< ", HeightStretch = " << c_WristHUDRadarHeightStretch->Value() << std::endl;
+		Logger::log << "[HUDAdjust] WristHUDRadarOffset = (" << radarOff.x << ", " << radarOff.y << ", " << radarOff.z << ")"
+			<< " Roll = " << c_WristHUDRadarRoll->Value() << " Scale = " << c_WristHUDRadarScale->Value() << std::endl;
+		Logger::log << "[HUDAdjust] WristHUDAmmoOffset = (" << ammoOff.x << ", " << ammoOff.y << ", " << ammoOff.z << ")"
+			<< " Roll = " << c_WristHUDAmmoRoll->Value() << " Scale = " << c_WristHUDAmmoScale->Value() << std::endl;
+		Logger::log << "[HUDAdjust] WristHUDHealthOffset = (" << healthOff.x << ", " << healthOff.y << ", " << healthOff.z << ")"
+			<< " Roll = " << c_WristHUDHealthRoll->Value() << " Scale = " << c_WristHUDHealthScale->Value() << std::endl;
 	}
 
-	if (keyJustPressed(VK_F9, bF9))
+	if (keyJustPressed(VK_F11, bF11))
 	{
 		if (config.SaveToFile("VR/config.txt"))
 		{
