@@ -1054,8 +1054,8 @@ void Game::UpdateLiveHUDAdjuster()
 	if (keyJustPressed(VK_PRIOR, bPgUp)) { moveDepth += liveAdjustStep; }
 	if (keyJustPressed(VK_NEXT, bPgDn)) { moveDepth -= liveAdjustStep; }
 	// Numpad tilt. Like rotate, these are angles so the step is scaled up.
-	if (keyJustPressed(VK_NUMPAD8, bNum8)) { tiltPitch += liveAdjustStep * 100.0f; }
-	if (keyJustPressed(VK_NUMPAD2, bNum2)) { tiltPitch -= liveAdjustStep * 100.0f; }
+	if (keyJustPressed(VK_NUMPAD8, bNum8)) { tiltPitch -= liveAdjustStep * 100.0f; }
+	if (keyJustPressed(VK_NUMPAD2, bNum2)) { tiltPitch += liveAdjustStep * 100.0f; }
 	if (keyJustPressed(VK_NUMPAD4, bNum4)) { tiltYaw += liveAdjustStep * 100.0f; }
 	if (keyJustPressed(VK_NUMPAD6, bNum6)) { tiltYaw -= liveAdjustStep * 100.0f; }
 
