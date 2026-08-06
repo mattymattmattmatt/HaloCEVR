@@ -981,6 +981,8 @@ void Game::PostThrowGrenade(HaloID& playerID)
 //   F9   scale down           F10  scale up
 //   F11  save to config       F12  log all values
 //   PgUp move towards wrist   PgDn move away from wrist
+//   Num8 tilt forward         Num2 tilt back
+//   Num4 tilt left            Num6 tilt right
 //   Ins  cycle step size (fine 0.01 / medium 0.05 / coarse 0.20)
 //
 // Every action logs what it did, so nothing has to be memorised while wearing a
@@ -1004,6 +1006,7 @@ void Game::UpdateLiveHUDAdjuster()
 	static bool bF7 = false, bF8 = false, bF9 = false, bF10 = false;
 	static bool bF11 = false, bF12 = false, bInsert = false;
 	static bool bPgUp = false, bPgDn = false;
+	static bool bNum8 = false, bNum2 = false, bNum4 = false, bNum6 = false;
 
 	const char* targetNames[] = { "Radar", "Ammo", "Health", "All three (grouped)" };
 	const int targetCount = 4;
@@ -1033,6 +1036,8 @@ void Game::UpdateLiveHUDAdjuster()
 	float moveUp = 0.0f;
 	float moveDepth = 0.0f;
 	float rotate = 0.0f;
+	float tiltPitch = 0.0f;
+	float tiltYaw = 0.0f;
 	float scaleChange = 0.0f;
 
 	if (keyJustPressed(VK_F2, bF2)) { moveLeft += liveAdjustStep; }
@@ -1048,6 +1053,11 @@ void Game::UpdateLiveHUDAdjuster()
 	// affect which way is "towards the wrist".
 	if (keyJustPressed(VK_PRIOR, bPgUp)) { moveDepth += liveAdjustStep; }
 	if (keyJustPressed(VK_NEXT, bPgDn)) { moveDepth -= liveAdjustStep; }
+	// Numpad tilt. Like rotate, these are angles so the step is scaled up.
+	if (keyJustPressed(VK_NUMPAD8, bNum8)) { tiltPitch += liveAdjustStep * 100.0f; }
+	if (keyJustPressed(VK_NUMPAD2, bNum2)) { tiltPitch -= liveAdjustStep * 100.0f; }
+	if (keyJustPressed(VK_NUMPAD4, bNum4)) { tiltYaw += liveAdjustStep * 100.0f; }
+	if (keyJustPressed(VK_NUMPAD6, bNum6)) { tiltYaw -= liveAdjustStep * 100.0f; }
 
 	// The panel is rolled by WristHUDRotation, and the offset is applied in the
 	// panel's own rolled frame - so pressing "left" moves along the panel's
@@ -1062,9 +1072,9 @@ void Game::UpdateLiveHUDAdjuster()
 		float totalRollDegrees = c_WristHUDRotation->Value().x;
 		switch (liveAdjustTarget)
 		{
-		case 0: totalRollDegrees += c_WristHUDRadarRoll->Value(); break;
-		case 1: totalRollDegrees += c_WristHUDAmmoRoll->Value(); break;
-		case 2: totalRollDegrees += c_WristHUDHealthRoll->Value(); break;
+		case 0: totalRollDegrees += c_WristHUDRadarRotation->Value().x; break;
+		case 1: totalRollDegrees += c_WristHUDAmmoRotation->Value().x; break;
+		case 2: totalRollDegrees += c_WristHUDHealthRotation->Value().x; break;
 		default: break; // grouped target moves the shared offset, group roll only
 		}
 
@@ -1077,13 +1087,14 @@ void Game::UpdateLiveHUDAdjuster()
 		moveUp = rotatedUp;
 	}
 
-	const bool bAnyChange = (moveLeft != 0.0f || moveUp != 0.0f || moveDepth != 0.0f || rotate != 0.0f || scaleChange != 0.0f);
+	const bool bAnyChange = (moveLeft != 0.0f || moveUp != 0.0f || moveDepth != 0.0f
+		|| rotate != 0.0f || tiltPitch != 0.0f || tiltYaw != 0.0f || scaleChange != 0.0f);
 
 	if (bAnyChange)
 	{
 		// Applies a change to one element's own offset/roll/scale properties
 		auto adjustElement = [&](const char* name, Vector3Property* offsetProp,
-			FloatProperty* rollProp, FloatProperty* scaleProp)
+			Vector3Property* rotationProp, FloatProperty* scaleProp)
 		{
 			// moveLeft writes .x rather than .y: with the panel attached to the
 			// controller, .y was observed to move forward/back rather than
@@ -1094,8 +1105,11 @@ void Game::UpdateLiveHUDAdjuster()
 			off.y += moveDepth;
 			offsetProp->SetValue(off);
 
-			float roll = rollProp->Value() + rotate;
-			rollProp->SetValue(roll);
+			Vector3 rot = rotationProp->Value();
+			rot.x += rotate;
+			rot.y += tiltPitch;
+			rot.z += tiltYaw;
+			rotationProp->SetValue(rot);
 
 			float scale = scaleProp->Value() + scaleChange;
 			if (scale < 0.01f) { scale = 0.01f; }
@@ -1103,19 +1117,20 @@ void Game::UpdateLiveHUDAdjuster()
 
 			Logger::log << "[HUDAdjust] " << name
 				<< " offset=(" << off.x << ", " << off.y << ", " << off.z << ")"
-				<< " roll=" << roll << " scale=" << scale << std::endl;
+				<< " rotation=(" << rot.x << ", " << rot.y << ", " << rot.z << ")"
+				<< " scale=" << scale << std::endl;
 		};
 
 		switch (liveAdjustTarget)
 		{
 		case 0:
-			adjustElement("Radar", c_WristHUDRadarOffset, c_WristHUDRadarRoll, c_WristHUDRadarScale);
+			adjustElement("Radar", c_WristHUDRadarOffset, c_WristHUDRadarRotation, c_WristHUDRadarScale);
 			break;
 		case 1:
-			adjustElement("Ammo", c_WristHUDAmmoOffset, c_WristHUDAmmoRoll, c_WristHUDAmmoScale);
+			adjustElement("Ammo", c_WristHUDAmmoOffset, c_WristHUDAmmoRotation, c_WristHUDAmmoScale);
 			break;
 		case 2:
-			adjustElement("Health", c_WristHUDHealthOffset, c_WristHUDHealthRoll, c_WristHUDHealthScale);
+			adjustElement("Health", c_WristHUDHealthOffset, c_WristHUDHealthRotation, c_WristHUDHealthScale);
 			break;
 		case 3:
 		{
@@ -1130,6 +1145,8 @@ void Game::UpdateLiveHUDAdjuster()
 
 			Vector3 rot = c_WristHUDRotation->Value();
 			rot.x += rotate;
+			rot.y += tiltPitch;
+			rot.z += tiltYaw;
 			c_WristHUDRotation->SetValue(rot);
 
 			if (scaleChange != 0.0f)
@@ -1167,11 +1184,17 @@ void Game::UpdateLiveHUDAdjuster()
 		Logger::log << "[HUDAdjust] WristHUDRotation = (" << rot.x << ", " << rot.y << ", " << rot.z << ")" << std::endl;
 		Logger::log << "[HUDAdjust] WristHUDElementSpacing = " << c_WristHUDElementSpacing->Value() << std::endl;
 		Logger::log << "[HUDAdjust] WristHUDRadarOffset = (" << radarOff.x << ", " << radarOff.y << ", " << radarOff.z << ")"
-			<< " Roll = " << c_WristHUDRadarRoll->Value() << " Scale = " << c_WristHUDRadarScale->Value() << std::endl;
+			<< " Rotation = (" << c_WristHUDRadarRotation->Value().x << ", "
+			<< c_WristHUDRadarRotation->Value().y << ", " << c_WristHUDRadarRotation->Value().z << ")"
+			<< " Scale = " << c_WristHUDRadarScale->Value() << std::endl;
 		Logger::log << "[HUDAdjust] WristHUDAmmoOffset = (" << ammoOff.x << ", " << ammoOff.y << ", " << ammoOff.z << ")"
-			<< " Roll = " << c_WristHUDAmmoRoll->Value() << " Scale = " << c_WristHUDAmmoScale->Value() << std::endl;
+			<< " Rotation = (" << c_WristHUDAmmoRotation->Value().x << ", "
+			<< c_WristHUDAmmoRotation->Value().y << ", " << c_WristHUDAmmoRotation->Value().z << ")"
+			<< " Scale = " << c_WristHUDAmmoScale->Value() << std::endl;
 		Logger::log << "[HUDAdjust] WristHUDHealthOffset = (" << healthOff.x << ", " << healthOff.y << ", " << healthOff.z << ")"
-			<< " Roll = " << c_WristHUDHealthRoll->Value() << " Scale = " << c_WristHUDHealthScale->Value() << std::endl;
+			<< " Rotation = (" << c_WristHUDHealthRotation->Value().x << ", "
+			<< c_WristHUDHealthRotation->Value().y << ", " << c_WristHUDHealthRotation->Value().z << ")"
+			<< " Scale = " << c_WristHUDHealthScale->Value() << std::endl;
 	}
 
 	if (keyJustPressed(VK_F11, bF11))
@@ -1526,9 +1549,9 @@ void Game::SetupConfigs()
 	c_WristHUDAmmoOffset = config.RegisterVector3("WristHUDAmmoOffset", "Fine (forward, left, up) position of just the ammo element, on top of the shared WristHUDOffset", Vector3(0.0f, 0.0f, 0.0f));
 	c_WristHUDHealthOffset = config.RegisterVector3("WristHUDHealthOffset", "Fine (forward, left, up) position of just the health element, on top of the shared WristHUDOffset", Vector3(0.0f, 0.0f, 0.0f));
 	c_WristHUDRadarOffset = config.RegisterVector3("WristHUDRadarOffset", "Fine (forward, left, up) position of just the radar element, on top of the shared WristHUDOffset", Vector3(0.0f, 0.0f, 0.0f));
-	c_WristHUDAmmoRoll = config.RegisterFloat("WristHUDAmmoRoll", "Extra roll in degrees for just the ammo element, on top of the shared WristHUDRotation", 0.0f);
-	c_WristHUDHealthRoll = config.RegisterFloat("WristHUDHealthRoll", "Extra roll in degrees for just the health element, on top of the shared WristHUDRotation", 0.0f);
-	c_WristHUDRadarRoll = config.RegisterFloat("WristHUDRadarRoll", "Extra roll in degrees for just the radar element, on top of the shared WristHUDRotation", 0.0f);
+	c_WristHUDAmmoRotation = config.RegisterVector3("WristHUDAmmoRotation", "Extra rotation in degrees (roll, pitch, yaw) for just the ammo element, on top of the shared WristHUDRotation", Vector3(0.0f, 0.0f, 0.0f));
+	c_WristHUDHealthRotation = config.RegisterVector3("WristHUDHealthRotation", "Extra rotation in degrees (roll, pitch, yaw) for just the health element, on top of the shared WristHUDRotation", Vector3(0.0f, 0.0f, 0.0f));
+	c_WristHUDRadarRotation = config.RegisterVector3("WristHUDRadarRotation", "Extra rotation in degrees (roll, pitch, yaw) for just the radar element, on top of the shared WristHUDRotation", Vector3(0.0f, 0.0f, 0.0f));
 	// Starting guesses based on a screenshot of the whole cloned texture, each
 	// crop is a fraction (0-1) of the underlying 640x640 render target. Needs
 	// visual tuning: adjust one edge at a time and compare against what's

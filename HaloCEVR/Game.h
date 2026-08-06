@@ -260,9 +260,11 @@ public:
 	Vector3Property* c_WristHUDHealthOffset = nullptr;
 	Vector3Property* c_WristHUDRadarOffset = nullptr;
 	// Per-element rotation (degrees), applied on top of the shared group rotation
-	FloatProperty* c_WristHUDAmmoRoll = nullptr;
-	FloatProperty* c_WristHUDHealthRoll = nullptr;
-	FloatProperty* c_WristHUDRadarRoll = nullptr;
+	// Per-element rotation (degrees): x = roll, y = pitch (tilt forward/back),
+	// z = yaw (tilt left/right). Applied on top of the shared group rotation.
+	Vector3Property* c_WristHUDAmmoRotation = nullptr;
+	Vector3Property* c_WristHUDHealthRotation = nullptr;
+	Vector3Property* c_WristHUDRadarRotation = nullptr;
 	FloatProperty* c_WristHUDAmmoUMin = nullptr;
 	FloatProperty* c_WristHUDAmmoVMin = nullptr;
 	FloatProperty* c_WristHUDAmmoUMax = nullptr;
