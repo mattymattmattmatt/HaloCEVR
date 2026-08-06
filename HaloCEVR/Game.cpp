@@ -980,6 +980,7 @@ void Game::PostThrowGrenade(HaloID& playerID)
 //   F7   rotate anticlockwise F8   rotate clockwise
 //   F9   scale down           F10  scale up
 //   F11  save to config       F12  log all values
+//   PgUp move towards wrist   PgDn move away from wrist
 //   Ins  cycle step size (fine 0.01 / medium 0.05 / coarse 0.20)
 //
 // Every action logs what it did, so nothing has to be memorised while wearing a
@@ -1002,6 +1003,7 @@ void Game::UpdateLiveHUDAdjuster()
 	static bool bF1 = false, bF2 = false, bF3 = false, bF4 = false, bF6 = false;
 	static bool bF7 = false, bF8 = false, bF9 = false, bF10 = false;
 	static bool bF11 = false, bF12 = false, bInsert = false;
+	static bool bPgUp = false, bPgDn = false;
 
 	const char* targetNames[] = { "Radar", "Ammo", "Health", "All three (grouped)" };
 	const int targetCount = 4;
@@ -1023,10 +1025,13 @@ void Game::UpdateLiveHUDAdjuster()
 		Logger::log << "[HUDAdjust] Step size now " << liveAdjustStep << std::endl;
 	}
 
-	// Movement is on the panel's own flat plane: left-right and up-down.
-	// Mod convention is offset.y = left, offset.z = up.
+	// Movement on the panel's plane (left-right, up-down) plus depth. The offset
+	// component each maps to was determined by testing rather than the mod's
+	// usual (forward, left, up) convention, since this is a controller-relative
+	// transform: .x moves left-right, .z moves up-down, .y moves depth.
 	float moveLeft = 0.0f;
 	float moveUp = 0.0f;
+	float moveDepth = 0.0f;
 	float rotate = 0.0f;
 	float scaleChange = 0.0f;
 
@@ -1038,6 +1043,11 @@ void Game::UpdateLiveHUDAdjuster()
 	if (keyJustPressed(VK_F8, bF8)) { rotate -= liveAdjustStep * 100.0f; }
 	if (keyJustPressed(VK_F9, bF9)) { scaleChange -= liveAdjustStep; }
 	if (keyJustPressed(VK_F10, bF10)) { scaleChange += liveAdjustStep; }
+	// Depth: towards the wrist / away from it. Deliberately NOT counter-rotated
+	// below, since roll spins the panel within its own plane and so does not
+	// affect which way is "towards the wrist".
+	if (keyJustPressed(VK_PRIOR, bPgUp)) { moveDepth += liveAdjustStep; }
+	if (keyJustPressed(VK_NEXT, bPgDn)) { moveDepth -= liveAdjustStep; }
 
 	// The panel is rolled by WristHUDRotation, and the offset is applied in the
 	// panel's own rolled frame - so pressing "left" moves along the panel's
@@ -1045,7 +1055,20 @@ void Game::UpdateLiveHUDAdjuster()
 	// rotating the input by the same angle cancels that out, so the keys move
 	// the panel truly horizontally and vertically whatever the roll is set to.
 	{
-		const float rollRad = c_WristHUDRotation->Value().x * (3.14159265358979f / 180.0f);
+		// The total roll seen by the selected element is the shared group roll plus
+		// that element's own roll, so both must be cancelled - counter-rotating by
+		// the group roll alone would still leave movement diagonal for any element
+		// that has an individual roll set.
+		float totalRollDegrees = c_WristHUDRotation->Value().x;
+		switch (liveAdjustTarget)
+		{
+		case 0: totalRollDegrees += c_WristHUDRadarRoll->Value(); break;
+		case 1: totalRollDegrees += c_WristHUDAmmoRoll->Value(); break;
+		case 2: totalRollDegrees += c_WristHUDHealthRoll->Value(); break;
+		default: break; // grouped target moves the shared offset, group roll only
+		}
+
+		const float rollRad = totalRollDegrees * (3.14159265358979f / 180.0f);
 		const float c = cos(rollRad);
 		const float sn = sin(rollRad);
 		const float rotatedLeft = moveLeft * c + moveUp * sn;
@@ -1054,7 +1077,7 @@ void Game::UpdateLiveHUDAdjuster()
 		moveUp = rotatedUp;
 	}
 
-	const bool bAnyChange = (moveLeft != 0.0f || moveUp != 0.0f || rotate != 0.0f || scaleChange != 0.0f);
+	const bool bAnyChange = (moveLeft != 0.0f || moveUp != 0.0f || moveDepth != 0.0f || rotate != 0.0f || scaleChange != 0.0f);
 
 	if (bAnyChange)
 	{
@@ -1068,6 +1091,7 @@ void Game::UpdateLiveHUDAdjuster()
 			Vector3 off = offsetProp->Value();
 			off.x += moveLeft;
 			off.z += moveUp;
+			off.y += moveDepth;
 			offsetProp->SetValue(off);
 
 			float roll = rollProp->Value() + rotate;
@@ -1101,6 +1125,7 @@ void Game::UpdateLiveHUDAdjuster()
 			Vector3 off = c_WristHUDOffset->Value();
 			off.x += moveLeft;
 			off.z += moveUp;
+			off.y += moveDepth;
 			c_WristHUDOffset->SetValue(off);
 
 			Vector3 rot = c_WristHUDRotation->Value();

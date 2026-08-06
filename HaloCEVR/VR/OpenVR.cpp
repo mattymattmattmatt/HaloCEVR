@@ -533,7 +533,11 @@ static void SubmitWristElement(vr::IVROverlay* vrOverlay, vr::VROverlayHandle_t 
 	// magnitude of the panel's own up basis vector in the transform's rotation
 	// submatrix - a non-unit-length basis vector applies a scale as well as a
 	// direction, so this changes height without touching width or facing.
-	Vector3 stretchedUp = rolledUp * heightStretch;
+	// Guard against a zero or negative stretch from config: zero would collapse
+	// the up basis vector to zero length, producing a degenerate transform, and
+	// negative would flip the panel inside out.
+	const float safeHeightStretch = (heightStretch > 0.01f) ? heightStretch : 0.01f;
+	Vector3 stretchedUp = rolledUp * safeHeightStretch;
 
 	// Stacking previously used svUp (the ROTATED up basis) for the offset between
 	// elements. That is correct for orienting each panel's own tilt, but since
