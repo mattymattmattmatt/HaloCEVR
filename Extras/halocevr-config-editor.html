@@ -1,0 +1,1017 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HaloCEVR — Config</title>
+<style>
+:root{
+  --void:#050e15;
+  --panel:#0a1a24;
+  --panel-hi:#0f2836;
+  --edge:#17435a;
+  --hud:#6fd8ee;
+  --hud-dim:#2f7f96;
+  --hud-ghost:#183947;
+  --amber:#ffb03a;
+  --amber-dim:#6b4a15;
+  --danger:#ff6b5e;
+  --text:#c8e8f2;
+  --text-dim:#6f97a8;
+  --mono:ui-monospace,"Cascadia Mono","Segoe UI Mono",Consolas,monospace;
+  --sans:"Segoe UI",system-ui,-apple-system,sans-serif;
+  --chamfer:polygon(10px 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%,0 10px);
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;background:var(--void);color:var(--text);font-family:var(--sans);
+  font-size:14px;line-height:1.5;overflow:hidden;
+  background-image:radial-gradient(ellipse at 50% -20%,#0d2c3c 0%,transparent 60%);
+}
+body::after{
+  content:"";position:fixed;inset:0;pointer-events:none;z-index:100;
+  background:repeating-linear-gradient(0deg,rgba(111,216,238,.028) 0 1px,transparent 1px 3px);
+}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+input{font:inherit;color:inherit}
+
+/* ---------- shell ---------- */
+#shell{display:grid;grid-template-columns:230px 1fr;grid-template-rows:auto 1fr;height:100vh}
+/* id selectors above outrank the UA's [hidden]{display:none}, so state it explicitly */
+#shell[hidden],#land[hidden]{display:none}
+
+/* ---------- top bar ---------- */
+header{
+  grid-column:1/-1;display:flex;align-items:center;gap:18px;
+  padding:14px 22px;border-bottom:1px solid var(--edge);
+  background:linear-gradient(180deg,#0b1f2b,#071620);
+}
+.brand{display:flex;align-items:baseline;gap:10px;white-space:nowrap}
+.brand b{
+  font-size:15px;letter-spacing:.28em;text-transform:uppercase;font-weight:600;
+  color:var(--hud);text-shadow:0 0 14px rgba(111,216,238,.45)
+}
+.brand span{font-size:10px;letter-spacing:.24em;text-transform:uppercase;color:var(--hud-dim)}
+#search{
+  flex:1;max-width:380px;background:#061620;border:1px solid var(--edge);
+  padding:8px 12px;font-family:var(--mono);font-size:12px;letter-spacing:.06em;
+  clip-path:var(--chamfer);outline:none
+}
+#search:focus{border-color:var(--hud-dim);box-shadow:0 0 0 1px var(--hud-dim)}
+#search::placeholder{color:#3f6c7e}
+#fileState{
+  font-family:var(--mono);font-size:11px;color:var(--text-dim);
+  margin-left:auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px
+}
+#fileState b{color:var(--hud)}
+.act{
+  padding:8px 16px;font-size:11px;letter-spacing:.18em;text-transform:uppercase;
+  border:1px solid var(--hud-dim);color:var(--hud);clip-path:var(--chamfer);
+  background:#0a2230;transition:background .12s,color .12s;white-space:nowrap
+}
+.act:hover{background:var(--hud);color:#04131b}
+.act:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+.act[disabled]{opacity:.32;pointer-events:none}
+.act.primary{border-color:var(--amber);color:var(--amber);background:#241a08}
+.act.primary:hover{background:var(--amber);color:#160f02}
+
+/* ---------- nav rail ---------- */
+nav{
+  border-right:1px solid var(--edge);overflow-y:auto;padding:12px 0;
+  background:linear-gradient(90deg,#081821,#061219)
+}
+.navitem{
+  display:flex;align-items:center;gap:9px;width:100%;text-align:left;
+  padding:9px 16px 9px 13px;font-size:11px;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--text-dim);border-left:3px solid transparent;transition:color .12s,background .12s
+}
+.navitem:hover{color:var(--text);background:#0c222e}
+.navitem.on{color:var(--hud);background:#0d2836;border-left-color:var(--hud)}
+.navitem .n{margin-left:auto;font-family:var(--mono);font-size:10px;color:#3f6c7e}
+.navitem .dot{width:6px;height:6px;background:var(--amber);border-radius:50%;
+  box-shadow:0 0 7px var(--amber);flex:none}
+
+/* ---------- main ---------- */
+main{overflow-y:auto;padding:26px 30px 90px}
+.grp{margin-bottom:34px;scroll-margin-top:20px}
+.grp h2{
+  margin:0 0 3px;font-size:12px;letter-spacing:.3em;text-transform:uppercase;
+  font-weight:600;color:var(--hud)
+}
+.grp .sub{font-size:11px;color:var(--text-dim);margin-bottom:14px;letter-spacing:.04em}
+
+.row{
+  display:grid;grid-template-columns:1fr 300px;gap:22px;align-items:center;
+  padding:13px 16px;margin-bottom:7px;background:var(--panel);
+  border-left:2px solid var(--hud-ghost);clip-path:var(--chamfer);
+  transition:background .12s,border-color .12s
+}
+.row:hover{background:var(--panel-hi);border-left-color:var(--hud-dim)}
+.row.mod{border-left-color:var(--amber)}
+.rlabel{min-width:0}
+.rkey{
+  display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:13px;
+  color:var(--text);letter-spacing:.02em;word-break:break-word
+}
+.rkey .badge{
+  font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--amber);
+  border:1px solid var(--amber-dim);padding:1px 6px;background:#221704;flex:none
+}
+.rdesc{font-size:11.5px;color:var(--text-dim);margin-top:3px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.rctl{display:flex;align-items:center;gap:8px;justify-content:flex-end}
+
+/* info + tooltip */
+.info{
+  width:17px;height:17px;flex:none;border:1px solid var(--hud-dim);color:var(--hud-dim);
+  font-size:10px;font-family:var(--mono);border-radius:50%;line-height:1;
+  display:grid;place-items:center;position:relative
+}
+.info:hover{color:var(--hud);border-color:var(--hud)}
+/* Lives on <body>, not inside .row: clip-path on the row would otherwise clip
+   the tooltip (it clips descendants, including fixed ones), which cut the text
+   off at the row edge. One shared node, positioned on hover.                 */
+#tip{
+  position:fixed;z-index:95;width:330px;max-width:calc(100vw - 24px);
+  background:#04202c;border:1px solid var(--hud-dim);padding:11px 13px;
+  font-family:var(--sans);font-size:11.5px;line-height:1.55;color:var(--text);
+  letter-spacing:.01em;text-align:left;box-shadow:0 10px 34px rgba(0,0,0,.75);
+  clip-path:var(--chamfer);pointer-events:none
+}
+#tip[hidden]{display:none}
+#tip .d{margin-top:8px;padding-top:8px;border-top:1px solid var(--hud-ghost);
+  font-family:var(--mono);font-size:10.5px;color:var(--text-dim)}
+
+/* toggle */
+.tgl{
+  width:56px;height:25px;border:1px solid var(--edge);background:#061620;
+  position:relative;flex:none;transition:border-color .15s,background .15s
+}
+.tgl::after{
+  content:"";position:absolute;top:2px;left:2px;width:23px;height:19px;
+  background:var(--hud-ghost);transition:transform .15s,background .15s
+}
+.tgl .t{position:absolute;top:0;right:7px;line-height:23px;font-size:9px;
+  letter-spacing:.12em;color:var(--text-dim);font-family:var(--mono)}
+.tgl.on{border-color:var(--hud-dim);background:#07242f}
+.tgl.on::after{transform:translateX(27px);background:var(--hud);
+  box-shadow:0 0 12px rgba(111,216,238,.65)}
+.tgl.on .t{right:auto;left:8px;color:var(--hud)}
+.tgl:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+
+/* numbers */
+.num{display:flex;align-items:center;border:1px solid var(--edge);background:#061620}
+.num input{
+  width:88px;background:none;border:none;padding:6px 8px;text-align:right;
+  font-family:var(--mono);font-size:12.5px;outline:none;-moz-appearance:textfield
+}
+.num input::-webkit-outer-spin-button,.num input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.num input:focus{color:var(--hud)}
+.num button{
+  width:26px;height:29px;color:var(--hud-dim);font-size:14px;line-height:1;
+  border-left:1px solid var(--edge);transition:background .1s,color .1s
+}
+.num button:first-of-type{border-left:none;border-right:1px solid var(--edge)}
+.num button:hover{background:var(--hud-dim);color:#04131b}
+.num:focus-within{border-color:var(--hud-dim)}
+
+/* vector3 */
+.vec{display:flex;gap:5px}
+.vax{display:flex;flex-direction:column;gap:2px;align-items:center}
+.vax label{font-family:var(--mono);font-size:8.5px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--text-dim)}
+.vax input{
+  width:78px;background:#061620;border:1px solid var(--edge);padding:5px 7px;
+  text-align:right;font-family:var(--mono);font-size:12px;outline:none
+}
+.vax input:focus{border-color:var(--hud-dim);color:var(--hud)}
+
+/* string */
+.str{
+  width:220px;background:#061620;border:1px solid var(--edge);padding:6px 9px;
+  font-family:var(--mono);font-size:12px;outline:none
+}
+.str:focus{border-color:var(--hud-dim);color:var(--hud)}
+
+/* reset */
+.rst{
+  width:24px;height:24px;flex:none;color:#37637a;font-size:13px;line-height:1;
+  transition:color .12s,transform .2s
+}
+.rst:hover{color:var(--amber);transform:rotate(-140deg)}
+.rst:focus-visible{outline:2px solid var(--amber);outline-offset:1px}
+.rst.hide{visibility:hidden;pointer-events:none}
+
+/* ---------- landing ---------- */
+#land{
+  position:fixed;inset:0;z-index:80;display:grid;place-items:center;
+  background:radial-gradient(ellipse at 50% 35%,#0c2c3d 0%,transparent 55%),var(--void)
+}
+#land.drag .lbox{border-color:var(--hud);background:#0b2836}
+.lbox{
+  width:min(560px,88vw);border:1px solid var(--edge);background:var(--panel);
+  padding:44px 46px;text-align:center;clip-path:polygon(22px 0,100% 0,100% calc(100% - 22px),calc(100% - 22px) 100%,0 100%,0 22px);
+  transition:border-color .15s,background .15s
+}
+.lbox h1{
+  margin:0 0 6px;font-size:19px;letter-spacing:.3em;text-transform:uppercase;
+  font-weight:600;color:var(--hud);text-shadow:0 0 20px rgba(111,216,238,.4)
+}
+.lbox .tag{font-size:11px;letter-spacing:.26em;text-transform:uppercase;
+  color:var(--hud-dim);margin-bottom:26px}
+.lbox p{font-size:12.5px;color:var(--text-dim);margin:0 0 24px;line-height:1.75}
+.lbox p code{font-family:var(--mono);color:var(--text);font-size:12px}
+.lrow{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+.hint{margin-top:22px;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:#3f6c7e}
+
+/* ---------- history ---------- */
+#histWrap{position:fixed;inset:0;z-index:90;display:grid;place-items:center;
+  background:rgba(2,9,14,.82);backdrop-filter:blur(3px)}
+#histWrap[hidden]{display:none}
+.hist{
+  width:min(860px,92vw);max-height:84vh;display:flex;flex-direction:column;
+  background:var(--panel);border:1px solid var(--edge);
+  clip-path:polygon(18px 0,100% 0,100% calc(100% - 18px),calc(100% - 18px) 100%,0 100%,0 18px);
+  box-shadow:0 24px 70px rgba(0,0,0,.7)
+}
+.hist header{
+  grid-column:auto;display:block;padding:20px 26px 16px;background:none;
+  border-bottom:1px solid var(--edge)
+}
+.hist h2{margin:0 0 3px;font-size:13px;letter-spacing:.3em;text-transform:uppercase;
+  font-weight:600;color:var(--hud)}
+.hist .hsub{font-size:11px;color:var(--text-dim);letter-spacing:.04em}
+.hpick{display:flex;gap:12px;align-items:center;padding:16px 26px 0}
+#revSel{
+  flex:1;background:#061620;border:1px solid var(--edge);color:var(--text);
+  padding:9px 12px;font-family:var(--mono);font-size:12px;letter-spacing:.03em;
+  outline:none;clip-path:var(--chamfer)
+}
+#revSel:focus{border-color:var(--hud-dim)}
+#revCount{padding:10px 26px 0;font-size:11px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--amber)}
+#revDiff{overflow-y:auto;padding:12px 26px 4px;margin-bottom:6px}
+.drow{
+  display:grid;grid-template-columns:1fr 150px 150px 30px;gap:14px;align-items:center;
+  padding:9px 12px;margin-bottom:5px;background:#08202c;border-left:2px solid var(--amber)
+}
+.drow.dhead{
+  background:none;border-left-color:transparent;padding:0 12px 6px;margin-bottom:6px;
+  font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--text-dim)
+}
+.dkey{font-family:var(--mono);font-size:12px;word-break:break-word}
+.dwas,.dnow{font-family:var(--mono);font-size:11.5px;text-align:right;word-break:break-word}
+.dwas{color:var(--amber)}
+.dnow{color:var(--hud)}
+.dnone{padding:26px 4px;text-align:center;color:var(--text-dim);font-size:12px}
+.hfoot{display:flex;gap:10px;justify-content:flex-end;padding:14px 26px 20px;
+  border-top:1px solid var(--edge)}
+#revEmpty{padding:44px 26px;text-align:center;color:var(--text-dim);font-size:12.5px;line-height:1.8}
+
+/* ---------- toast ---------- */
+#toast{
+  position:fixed;left:50%;bottom:32px;transform:translate(-50%,26px);z-index:120;
+  background:#04202c;border:1px solid var(--hud-dim);color:var(--hud);
+  padding:11px 24px;font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+  clip-path:var(--chamfer);opacity:0;pointer-events:none;transition:opacity .22s,transform .22s
+}
+#toast.show{opacity:1;transform:translate(-50%,0)}
+#toast.warn{border-color:var(--amber);color:var(--amber)}
+
+#empty{padding:60px 10px;text-align:center;color:var(--text-dim);font-size:12.5px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important}.rst:hover{transform:none}}
+@media (max-width:900px){
+  #shell{grid-template-columns:1fr}
+  nav{display:none}
+  .row{grid-template-columns:1fr;gap:12px}
+  .rctl{justify-content:flex-start}
+}
+</style>
+</head>
+<body>
+
+<div id="shell" hidden>
+  <header>
+    <div class="brand"><b>HaloCEVR</b><span>Config</span></div>
+    <input id="search" type="search" placeholder="Search settings…" autocomplete="off">
+    <div id="fileState"></div>
+    <button class="act" id="btnResetAll">Reset all</button>
+    <button class="act" id="btnOpen2">Open</button>
+    <button class="act" id="btnHistory">History</button>
+    <button class="act primary" id="btnSave">Save</button>
+  </header>
+  <nav id="nav"></nav>
+  <main id="main"></main>
+</div>
+
+<div id="land">
+  <div class="lbox">
+    <h1>HaloCEVR</h1>
+    <div class="tag">Configuration Editor</div>
+    <p>Open your <code>VR/config.txt</code> to edit every setting with proper controls,
+       descriptions and defaults — no more scrolling a text file.<br>
+       Everything stays on your machine. Nothing is uploaded.</p>
+    <div class="lrow">
+      <button class="act primary" id="btnAuto" hidden>Load config.txt</button>
+      <button class="act" id="btnOpen">Open config.txt</button>
+    </div>
+    <div class="hint" id="autoHint">or drop the file anywhere</div>
+  </div>
+</div>
+
+<div id="histWrap" hidden>
+  <div class="hist">
+    <header>
+      <h2>Revision history</h2>
+      <div class="hsub">Snapshots taken every time you save. Stored in this browser — no extra files.</div>
+    </header>
+    <div id="revEmpty" hidden>
+      No revisions yet.<br>They start building up the first time you save.
+    </div>
+    <div id="revBody" hidden>
+      <div class="hpick">
+        <select id="revSel" aria-label="Choose a revision to compare"></select>
+      </div>
+      <div id="revCount"></div>
+      <div id="revDiff"></div>
+    </div>
+    <div class="hfoot">
+      <button class="act" id="btnRestoreAll">Restore all shown</button>
+      <button class="act primary" id="btnHistClose">Close</button>
+    </div>
+  </div>
+</div>
+
+<div id="tip" hidden></div>
+
+<div id="toast"></div>
+<input type="file" id="fileIn" accept=".txt" hidden>
+
+<script>
+"use strict";
+
+/* ---------- state ---------- */
+let lines=[];      // every raw line, preserved
+let eol="\r\n";
+let settings=[];   // {key,type,desc,def,val,lineIdx,cat}
+let handle=null;   // FileSystemFileHandle when available
+let fileName="config.txt";
+let dirty=false;
+
+const $=s=>document.querySelector(s);
+const el=(t,c,x)=>{const n=document.createElement(t);if(c)n.className=c;if(x!=null)n.textContent=x;return n;};
+
+/* ---------- categories ---------- */
+const CATS=[
+  ["Wrist HUD",       "Ammo, health and radar on your off hand",
+    k=>/^WristHUD/.test(k)||k==="ShowWristHUD"||k==="EnableLiveHUDAdjuster"],
+  ["HUD & Display",   "Floating HUD, crosshair and desktop mirror",
+    k=>/^(UIOverlay|MenuOverlay|Crosshair|HUDToggle)/.test(k)||
+       ["ShowCrosshair","DrawMirror","MirrorEye","HUDFollowsHeadPitch","ShowRoomCentre"].includes(k)],
+  ["Movement",        "Turning, room scale and crouching",
+    k=>/^(SnapTurn|SmoothTurn|RoomScale|HandRelative)/.test(k)||k==="CrouchHeight"],
+  ["Weapons",         "Grip, handedness, smoothing and holsters",
+    k=>/(Holster|MeleeSwingSpeed|WeaponSmoothingAmount)/.test(k)||
+       /^3DOF/.test(k)||
+       ["LeftHanded","ToggleGrip","TwoHandDistance","SwapHandDistance",
+        "DisableTwoHandForOneHanded","Use3DOFAiming","EnableWeaponHolsters"].includes(k)],
+  ["Scopes",          "Zoom optics and reticle behaviour",
+    k=>/^Scope/.test(k)||["LockScopeRoll","UseOriginalScope"].includes(k)],
+  ["Grenades",        "Throwing and the trajectory arc",
+    k=>/Grenade/i.test(k)],
+  ["Vehicles",        "Driving, aiming and exiting",
+    k=>/Vehicle/.test(k)],
+  ["Flashlight",      "Gesture to toggle your light",
+    k=>/Flashlight/.test(k)],
+  ["Camera",          "Cutscene stabilisation",
+    k=>k==="StabiliseCutsceneCamera"],
+  ["Controller",      "Physical controller alignment",
+    k=>["ControllerOffset","ControllerRotation"].includes(k)],
+  ["Advanced",        "Diagnostics and compatibility workarounds",
+    k=>true]
+];
+const catOf=k=>{for(const c of CATS)if(c[2](k))return c[0];return"Advanced";};
+
+/* ---------- parsing ---------- */
+const RE_COMMENT=/^\/\/\[(\w+)\]\s*([\s\S]*?)\s*\(Default Value:\s*([\s\S]*)\)\s*$/;
+const RE_SET=/^([A-Za-z0-9_]+)\s*=\s*(.*)$/;
+
+function unquote(s){s=s.trim();return(s.length>1&&s[0]==='"'&&s.endsWith('"'))?s.slice(1,-1):s;}
+
+function parse(text){
+  eol=text.includes("\r\n")?"\r\n":"\n";
+  lines=text.split(/\r?\n/);
+  settings=[];
+  let pend=null;
+  lines.forEach((ln,i)=>{
+    const c=ln.match(RE_COMMENT);
+    if(c){pend={type:c[1],desc:c[2].trim(),def:unquote(c[3])};return;}
+    const m=ln.match(RE_SET);
+    if(m){
+      const key=m[1];
+      settings.push({
+        key,
+        type:pend?pend.type:guessType(m[2]),
+        desc:pend?pend.desc:"",
+        def:pend?pend.def:m[2].trim(),
+        val:m[2].trim(),
+        lineIdx:i,
+        cat:catOf(key)
+      });
+      pend=null;
+    }
+  });
+  return settings.length;
+}
+function guessType(v){
+  v=v.trim();
+  if(v==="true"||v==="false")return"Bool";
+  if(/^\(.*\)$/.test(v))return"Vector3";
+  if(/^-?\d+$/.test(v))return"Int";
+  if(/^-?[\d.]+(e-?\d+)?$/i.test(v))return"Float";
+  return"String";
+}
+function serialise(){
+  const out=lines.slice();
+  for(const s of settings)out[s.lineIdx]=s.key+" = "+s.val;
+  return out.join(eol);
+}
+
+/* ---------- value helpers ---------- */
+const isMod=s=>norm(s.val)!==norm(s.def);
+function norm(v){
+  v=String(v).trim();
+  if(/^\(.*\)$/.test(v))return v.replace(/[()\s]/g,"");
+  const n=parseFloat(v);
+  return(!isNaN(n)&&/^-?[\d.]+(e-?\d+)?$/i.test(v))?String(n):v;
+}
+function vec(v){
+  const p=String(v).replace(/[()]/g,"").split(",").map(x=>x.trim());
+  return[p[0]||"0",p[1]||"0",p[2]||"0"];
+}
+const fmtVec=a=>"("+a.map(x=>x===""?"0":x).join(", ")+")";
+const axesFor=d=>/forward.*left.*up/i.test(d)?["Fwd","Left","Up"]:["X","Y","Z"];
+
+/* ---------- rendering ---------- */
+function render(){
+  const q=$("#search").value.trim().toLowerCase();
+  const main=$("#main");main.innerHTML="";
+  let shown=0;
+
+  for(const [name,sub] of CATS){
+    const items=settings.filter(s=>s.cat===name&&
+      (!q||s.key.toLowerCase().includes(q)||s.desc.toLowerCase().includes(q)));
+    if(!items.length)continue;
+    shown+=items.length;
+
+    const g=el("section","grp");
+    g.id="cat-"+name.replace(/\W/g,"");
+    g.appendChild(el("h2",null,name));
+    g.appendChild(el("div","sub",sub));
+    items.forEach(s=>g.appendChild(rowFor(s)));
+    main.appendChild(g);
+  }
+  if(!shown){
+    const e=el("div");e.id="empty";
+    e.textContent=q?`No settings match “${$("#search").value.trim()}”.`:"No settings found in this file.";
+    main.appendChild(e);
+  }
+  buildNav(q);
+  $("#fileState").innerHTML=`<b>${esc(fileName)}</b> · ${settings.length} settings`+
+    (dirty?" · unsaved":"");
+}
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+// Per-setting undo. Every real edit pushes the value it is REPLACING onto
+// s.hist before applying the new one, so the little ⟲ next to each control
+// steps back one edit at a time - not a jump to the file's stated default
+// (that is what "Reset all" is for, as a separate, deliberate bulk action).
+function setVal(s,newVal){
+  if(newVal===s.val)return false;
+  (s.hist||(s.hist=[])).push(s.val);
+  s.val=newVal;
+  markDirty();
+  return true;
+}
+
+function rowFor(s){
+  const row=el("div","row"+(isMod(s)?" mod":""));
+  row.dataset.key=s.key;
+
+  const lab=el("div","rlabel");
+  const kl=el("div","rkey");
+  kl.appendChild(el("span",null,s.key));
+
+  const info=el("button","info","i");
+  info.type="button";info.setAttribute("aria-label","About "+s.key);
+  info.dataset.desc=s.desc||"No description in the config file.";
+  info.dataset.meta="Type "+s.type+"  ·  Default "+(s.def===""?"(blank)":s.def);
+  kl.appendChild(info);
+
+  if(isMod(s))kl.appendChild(el("span","badge","changed"));
+  lab.appendChild(kl);
+  if(s.desc)lab.appendChild(el("div","rdesc",s.desc));
+  row.appendChild(lab);
+
+  const ctl=el("div","rctl");
+  ctl.appendChild(controlFor(s,row));
+  ctl.appendChild(undoButton(s,row));
+  row.appendChild(ctl);
+  return row;
+}
+
+function undoButton(s,row){
+  const hasHist=()=>s.hist&&s.hist.length>0;
+  const rst=el("button","rst"+(hasHist()?"":" hide"),"⟲");
+  rst.type="button";
+  const label=()=>{
+    const prev=hasHist()?s.hist[s.hist.length-1]:null;
+    rst.title=prev!==null?"Undo — back to "+(prev===""?"blank":prev):"Nothing to undo";
+    rst.setAttribute("aria-label","Undo last change to "+s.key);
+  };
+  label();
+  rst.onclick=()=>{
+    if(!hasHist())return;
+    s.val=s.hist.pop();   // step back one edit; does not itself create a new undo entry
+    markDirty();
+    replaceRow(s,row);
+  };
+  return rst;
+}
+
+function replaceRow(s,row){row.replaceWith(rowFor(s));}
+
+function controlFor(s,row){
+  const commit=nv=>{ if(setVal(s,nv)) refreshRowState(s,row); };
+
+  if(s.type==="Bool"){
+    const b=el("button","tgl"+(s.val==="true"?" on":""));
+    b.type="button";b.setAttribute("role","switch");
+    b.setAttribute("aria-checked",s.val==="true");
+    b.setAttribute("aria-label",s.key);
+    b.appendChild(el("span","t",s.val==="true"?"ON":"OFF"));
+    b.onclick=()=>{
+      commit(s.val==="true"?"false":"true");
+      b.classList.toggle("on",s.val==="true");
+      b.setAttribute("aria-checked",s.val==="true");
+      b.querySelector(".t").textContent=s.val==="true"?"ON":"OFF";
+    };
+    return b;
+  }
+
+  if(s.type==="Vector3"){
+    const wrap=el("div","vec"),ax=axesFor(s.desc),cur=vec(s.val);
+    ax.forEach((nm,i)=>{
+      const c=el("div","vax"),l=el("label",null,nm),inp=el("input");
+      const id="v"+s.key+i;l.htmlFor=id;inp.id=id;
+      inp.type="number";inp.step="any";inp.value=cur[i];
+      inp.oninput=()=>{const a=vec(s.val);a[i]=inp.value===""?"0":inp.value;commit(fmtVec(a));};
+      c.appendChild(l);c.appendChild(inp);wrap.appendChild(c);
+    });
+    return wrap;
+  }
+
+  if(s.type==="Int"||s.type==="Float"){
+    const step=s.type==="Int"?1:0.01;
+    const w=el("div","num");
+    const dec=el("button",null,"−"),inc=el("button",null,"+");
+    const inp=el("input");
+    dec.type=inc.type="button";
+    dec.setAttribute("aria-label","Decrease "+s.key);
+    inc.setAttribute("aria-label","Increase "+s.key);
+    inp.type="number";inp.step=String(step);inp.value=s.val;
+    inp.setAttribute("aria-label",s.key);
+    const bump=d=>{
+      const n=(parseFloat(inp.value)||0)+d*step;
+      inp.value=s.type==="Int"?String(Math.round(n)):String(parseFloat(n.toFixed(6)));
+      commit(inp.value);
+    };
+    dec.onclick=()=>bump(-1);inc.onclick=()=>bump(1);
+    inp.oninput=()=>{commit(inp.value.trim()===""?"0":inp.value.trim());};
+    w.appendChild(dec);w.appendChild(inp);w.appendChild(inc);
+    return w;
+  }
+
+  const t=el("input","str");
+  t.type="text";t.value=s.val;t.placeholder="(blank)";
+  t.setAttribute("aria-label",s.key);
+  t.oninput=()=>{commit(t.value);};
+  return t;
+}
+
+function refreshRowState(s,row){
+  const m=isMod(s);
+  row.classList.toggle("mod",m);
+  const kl=row.querySelector(".rkey");
+  const has=kl.querySelector(".badge");
+  if(m&&!has)kl.appendChild(el("span","badge","changed"));
+  if(!m&&has)has.remove();
+
+  const hasHist=s.hist&&s.hist.length>0;
+  const rst=row.querySelector(".rst");
+  rst.classList.toggle("hide",!hasHist);
+  const prev=hasHist?s.hist[s.hist.length-1]:null;
+  rst.title=prev!==null?"Undo — back to "+(prev===""?"blank":prev):"Nothing to undo";
+
+  navCounts();
+}
+
+function buildNav(q){
+  const nav=$("#nav");nav.innerHTML="";
+  for(const [name] of CATS){
+    const all=settings.filter(s=>s.cat===name);
+    if(!all.length)continue;
+    const vis=all.filter(s=>!q||s.key.toLowerCase().includes(q)||s.desc.toLowerCase().includes(q));
+    const b=el("button","navitem");
+    b.type="button";b.dataset.cat=name;
+    b.appendChild(el("span",null,name));
+    if(all.some(isMod))b.appendChild(el("span","dot"));
+    b.appendChild(el("span","n",String(vis.length)));
+    if(!vis.length)b.style.opacity=".3";
+    b.onclick=()=>{
+      const t=document.getElementById("cat-"+name.replace(/\W/g,""));
+      if(t)t.scrollIntoView({behavior:"smooth",block:"start"});
+    };
+    nav.appendChild(b);
+  }
+  navCounts();
+}
+function navCounts(){
+  document.querySelectorAll(".navitem").forEach(b=>{
+    const mod=settings.some(s=>s.cat===b.dataset.cat&&isMod(s));
+    let dot=b.querySelector(".dot");
+    if(mod&&!dot){dot=el("span","dot");b.insertBefore(dot,b.querySelector(".n"));}
+    if(!mod&&dot)dot.remove();
+  });
+}
+
+/* spy on scroll for active category */
+$("#main")?.addEventListener("scroll",()=>{},{passive:true});
+
+function markDirty(){
+  dirty=true;
+  const f=$("#fileState");
+  if(f&&!f.textContent.includes("unsaved"))f.innerHTML+=" · unsaved";
+}
+
+/* ---------- tooltip ----------
+   Positioned against the icon, flipping to whichever side has room and clamped
+   to the viewport, so it can never open off-screen or behind another row.    */
+const tipEl=()=>$("#tip");
+function showTip(btn){
+  const t=tipEl();
+  t.innerHTML="";
+  t.appendChild(el("div",null,btn.dataset.desc||""));
+  if(btn.dataset.meta)t.appendChild(el("div","d",btn.dataset.meta));
+  t.hidden=false;
+
+  const r=btn.getBoundingClientRect();
+  const w=t.offsetWidth,h=t.offsetHeight,pad=10;
+  let left=r.right+10;
+  if(left+w>innerWidth-pad)left=r.left-w-10;      // flip to the left
+  if(left<pad)left=pad;                            // or clamp
+  let top=r.top-6;
+  if(top+h>innerHeight-pad)top=innerHeight-h-pad;  // lift off the bottom edge
+  if(top<pad)top=pad;
+  t.style.left=left+"px";t.style.top=top+"px";
+}
+const hideTip=()=>{tipEl().hidden=true;};
+
+document.addEventListener("mouseover",e=>{
+  const b=e.target.closest(".info");
+  if(b)showTip(b);else if(!e.target.closest("#tip"))hideTip();
+});
+document.addEventListener("focusin",e=>{
+  const b=e.target.closest(".info");
+  b?showTip(b):hideTip();
+});
+document.addEventListener("focusout",hideTip);
+window.addEventListener("scroll",hideTip,true);
+window.addEventListener("resize",hideTip);
+
+/* ---------- toast ---------- */
+let toastT;
+function toast(msg,warn){
+  const t=$("#toast");t.textContent=msg;
+  t.classList.toggle("warn",!!warn);t.classList.add("show");
+  clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove("show"),2600);
+}
+
+/* ---------- load / save ---------- */
+function load(text,name){
+  const n=parse(text);
+  if(!n){toast("No settings found in that file",true);return;}
+  fileName=name||"config.txt";dirty=false;
+  $("#land").hidden=true;$("#shell").hidden=false;
+  render();
+  snapshot("opened");
+  toast(n+" settings loaded");
+}
+
+async function openFile(){
+  if(window.showOpenFilePicker){
+    try{
+      const [h]=await window.showOpenFilePicker({
+        types:[{description:"HaloCEVR config",accept:{"text/plain":[".txt"]}}]
+      });
+      handle=h;remember(h);const f=await h.getFile();
+      load(await f.text(),f.name);
+    }catch(e){if(e.name!=="AbortError")toast("Could not open that file",true);}
+  }else{
+    $("#fileIn").click();
+  }
+}
+
+async function save(){
+  await snapshot("saved");
+  const text=serialise();
+  if(handle){
+    try{
+      const w=await handle.createWritable();
+      await w.write(text);await w.close();
+      dirty=false;render();toast("Saved to "+fileName);
+      return;
+    }catch(e){toast("Could not write the file — downloading instead",true);}
+  }
+  const a=el("a");
+  a.href=URL.createObjectURL(new Blob([text],{type:"text/plain"}));
+  a.download=fileName;a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1500);
+  dirty=false;render();
+  toast("Downloaded "+fileName);
+}
+
+/* ---------- remembering the file ----------
+   The page is meant to live next to config.txt. Two ways to reopen it without
+   digging through a file dialog every time:
+     1. If the folder is being served over http, just fetch it directly.
+     2. Otherwise remember the file handle the browser gave us last time. If it
+        still holds permission we load silently; if not, one click re-grants it.
+   Opened straight off disk (file://) fetch is blocked by the browser, so path 2
+   is what normally does the work.                                            */
+const DB="halocevr-cfg",STORE="handles",REVS="revisions";
+function idb(){
+  return new Promise((res,rej)=>{
+    const r=indexedDB.open(DB,2);
+    r.onupgradeneeded=e=>{
+      const d=r.result;
+      if(!d.objectStoreNames.contains(STORE))d.createObjectStore(STORE);
+      if(!d.objectStoreNames.contains(REVS))d.createObjectStore(REVS,{keyPath:"ts"});
+    };
+    r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);
+  });
+}
+async function remember(h){
+  try{const d=await idb();const t=d.transaction(STORE,"readwrite");
+    t.objectStore(STORE).put(h,"config");}catch(_){}
+}
+async function recall(){
+  try{const d=await idb();
+    return await new Promise(res=>{
+      const q=d.transaction(STORE,"readonly").objectStore(STORE).get("config");
+      q.onsuccess=()=>res(q.result||null);q.onerror=()=>res(null);
+    });
+  }catch(_){return null;}
+}
+
+async function tryFetchSameFolder(){
+  if(!location.protocol.startsWith("http"))return false;
+  try{
+    const r=await fetch("config.txt",{cache:"no-store"});
+    if(!r.ok)return false;
+    const t=await r.text();
+    if(!/^[A-Za-z0-9_]+\s*=/m.test(t))return false;
+    handle=null;load(t,"config.txt");
+    toast("Loaded config.txt from this folder");
+    return true;
+  }catch(_){return false;}
+}
+
+async function loadRemembered(interactive){
+  const h=await recall();
+  if(!h)return false;
+  try{
+    let p=await h.queryPermission({mode:"readwrite"});
+    if(p!=="granted"){
+      if(!interactive)return "needsClick";
+      p=await h.requestPermission({mode:"readwrite"});
+      if(p!=="granted")return false;
+    }
+    handle=h;const f=await h.getFile();
+    load(await f.text(),f.name);
+    return true;
+  }catch(_){return false;}
+}
+
+async function initAuto(){
+  if(await tryFetchSameFolder())return;
+  const r=await loadRemembered(false);
+  if(r===true)return;
+  if(r==="needsClick"){
+    const b=$("#btnAuto");
+    b.hidden=false;b.textContent="Load config.txt";
+    $("#autoHint").textContent="picks up where you left off — or drop a file anywhere";
+    b.onclick=async()=>{
+      if(!await loadRemembered(true))toast("Could not reopen that file — use Open instead",true);
+    };
+  }
+}
+
+/* ---------- revision history ----------
+   Every save snapshots the current values into IndexedDB - just the key/value
+   map, not the file text, which keeps them tiny and makes diffing trivial. The
+   file on disk is never duplicated: no .bak files, no exports, nothing for the
+   user to clean up. Kept to the most recent MAX_REVS.                        */
+const MAX_REVS=25;
+let revCache=[];
+
+const snapMap=()=>Object.fromEntries(settings.map(s=>[s.key,s.val]));
+
+async function snapshot(label){
+  if(!settings.length)return;
+  const rec={ts:Date.now(),label,file:fileName,values:snapMap()};
+  try{
+    const d=await idb();
+    await new Promise(r=>{
+      const t=d.transaction(REVS,"readwrite");t.objectStore(REVS).put(rec);
+      t.oncomplete=r;t.onerror=r;
+    });
+    const all=await listRevs();
+    if(all.length>MAX_REVS){
+      const drop=all.slice(MAX_REVS);
+      const d2=await idb();const t=d2.transaction(REVS,"readwrite");
+      drop.forEach(x=>t.objectStore(REVS).delete(x.ts));
+    }
+  }catch(_){}
+}
+
+async function listRevs(){
+  try{
+    const d=await idb();
+    return await new Promise(res=>{
+      const q=d.transaction(REVS,"readonly").objectStore(REVS).getAll();
+      q.onsuccess=()=>res((q.result||[]).sort((a,b)=>b.ts-a.ts));
+      q.onerror=()=>res([]);
+    });
+  }catch(_){return[];}
+}
+
+/* rows where the snapshot disagrees with what is on screen now */
+function diffRev(rev){
+  const out=[];
+  for(const s of settings){
+    const was=rev.values[s.key];
+    if(was===undefined)continue;
+    if(norm(was)!==norm(s.val))out.push({key:s.key,was,now:s.val,type:s.type});
+  }
+  return out.sort((a,b)=>a.key.localeCompare(b.key));
+}
+
+function whenText(ts){
+  const d=new Date(ts),now=new Date();
+  const hhmm=d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit"});
+  const sameDay=d.toDateString()===now.toDateString();
+  const yest=new Date(now);yest.setDate(now.getDate()-1);
+  const day=sameDay?"Today":(d.toDateString()===yest.toDateString()?"Yesterday"
+      :d.toLocaleDateString([],{day:"numeric",month:"short"}));
+  const mins=Math.round((now-d)/60000);
+  const rel=mins<1?"just now":mins<60?mins+" min ago"
+      :mins<1440?Math.round(mins/60)+" hr ago":Math.round(mins/1440)+" d ago";
+  return{stamp:day+" "+hhmm,rel};
+}
+
+async function openHistory(){
+  revCache=await listRevs();
+  const sel=$("#revSel");sel.innerHTML="";
+  if(!revCache.length){
+    $("#revEmpty").hidden=false;$("#revBody").hidden=true;
+    $("#histWrap").hidden=false;return;
+  }
+  $("#revEmpty").hidden=true;$("#revBody").hidden=false;
+  revCache.forEach((r,i)=>{
+    const t=whenText(r.ts);
+    const o=el("option",null,`${t.stamp}  ·  ${r.label}  ·  ${t.rel}`);
+    o.value=String(i);sel.appendChild(o);
+  });
+  sel.value="0";
+  renderDiff();
+  $("#histWrap").hidden=false;
+}
+
+function renderDiff(){
+  const rev=revCache[+$("#revSel").value];
+  const box=$("#revDiff");box.innerHTML="";
+  if(!rev)return;
+  const rows=diffRev(rev);
+  $("#revCount").textContent=rows.length
+    ? `${rows.length} setting${rows.length===1?"":"s"} differ from now`
+    : "Identical to your current settings";
+  $("#btnRestoreAll").disabled=!rows.length;
+
+  if(!rows.length){
+    box.appendChild(el("div","dnone","Nothing to compare — this revision matches what you have open."));
+    return;
+  }
+  const head=el("div","drow dhead");
+  head.appendChild(el("div",null,"Setting"));
+  head.appendChild(el("div",null,"That revision"));
+  head.appendChild(el("div",null,"Now"));
+  head.appendChild(el("div",null,""));
+  box.appendChild(head);
+
+  rows.forEach(r=>{
+    const d=el("div","drow");
+    d.appendChild(el("div","dkey",r.key));
+    d.appendChild(el("div","dwas",r.was===""?"(blank)":r.was));
+    d.appendChild(el("div","dnow",r.now===""?"(blank)":r.now));
+    const b=el("button","rst","⟲");
+    b.type="button";b.title="Put this value back";
+    b.setAttribute("aria-label","Restore "+r.key+" to "+r.was);
+    b.onclick=()=>{
+      const s=settings.find(x=>x.key===r.key);
+      if(!s)return;
+      setVal(s,r.was);render();renderDiff();
+      toast("Restored "+r.key);
+    };
+    d.appendChild(b);
+    box.appendChild(d);
+  });
+}
+
+async function restoreAll(){
+  const rev=revCache[+$("#revSel").value];
+  if(!rev)return;
+  const rows=diffRev(rev);
+  if(!rows.length)return;
+  if(!confirm(`Put ${rows.length} setting${rows.length===1?"":"s"} back to how they were at `+
+              `${whenText(rev.ts).stamp}?\n\nYour current values stay in history, so this can be undone.`))return;
+  await snapshot("before restore");
+  rows.forEach(r=>{const s=settings.find(x=>x.key===r.key);if(s)setVal(s,r.was);});
+  render();
+  $("#histWrap").hidden=true;
+  toast(rows.length+" settings restored");
+}
+
+/* ---------- wiring ---------- */
+$("#btnOpen").onclick=openFile;
+$("#btnOpen2").onclick=openFile;
+$("#btnSave").onclick=save;
+$("#btnHistory").onclick=openHistory;
+$("#btnHistClose").onclick=()=>{$("#histWrap").hidden=true;};
+$("#btnRestoreAll").onclick=restoreAll;
+$("#revSel").onchange=renderDiff;
+$("#histWrap").onclick=e=>{if(e.target.id==="histWrap")$("#histWrap").hidden=true;};
+$("#search").oninput=render;
+
+$("#btnResetAll").onclick=()=>{
+  const n=settings.filter(isMod).length;
+  if(!n){toast("Nothing to reset");return;}
+  if(!confirm(`Reset ${n} changed setting${n===1?"":"s"} back to default?`))return;
+  settings.forEach(s=>setVal(s,s.def)); // routed through setVal: each field stays
+                                         // individually undoable afterwards
+  render();toast(n+" settings reset");
+};
+
+$("#fileIn").onchange=e=>{
+  const f=e.target.files[0];if(!f)return;
+  handle=null;
+  const r=new FileReader();
+  r.onload=()=>load(r.result,f.name);
+  r.readAsText(f);
+};
+
+/* drag & drop */
+["dragenter","dragover"].forEach(ev=>
+  document.addEventListener(ev,e=>{e.preventDefault();$("#land").classList.add("drag");}));
+["dragleave","drop"].forEach(ev=>
+  document.addEventListener(ev,e=>{e.preventDefault();
+    if(ev==="dragleave"&&e.relatedTarget)return;
+    $("#land").classList.remove("drag");}));
+document.addEventListener("drop",async e=>{
+  const it=e.dataTransfer.items&&e.dataTransfer.items[0];
+  if(it&&it.getAsFileSystemHandle){
+    try{const h=await it.getAsFileSystemHandle();
+      if(h.kind==="file"){handle=h;remember(h);const f=await h.getFile();return load(await f.text(),f.name);}
+    }catch(_){}
+  }
+  const f=e.dataTransfer.files[0];if(!f)return;
+  handle=null;
+  const r=new FileReader();r.onload=()=>load(r.result,f.name);r.readAsText(f);
+});
+
+initAuto();
+
+/* ctrl+s */
+document.addEventListener("keydown",e=>{
+  if((e.ctrlKey||e.metaKey)&&e.key==="s"&&!$("#shell").hidden){e.preventDefault();save();}
+  if(e.key==="Escape"&&!$("#histWrap").hidden)$("#histWrap").hidden=true;
+});
+window.addEventListener("beforeunload",e=>{
+  if(dirty){e.preventDefault();e.returnValue="";}
+});
+
+</script>
+</body>
+</html>

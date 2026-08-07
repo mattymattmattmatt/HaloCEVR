@@ -7,6 +7,8 @@ xcopy "./Extras/Bindings" "./Output/VR/OpenVR/" /E /I
 xcopy "./Extras/Fonts" "./Output/VR/Fonts/" /E /I
 :: Copy images into correct subfolder
 xcopy "./Extras/Images" "./Output/VR/Images/" /E /I
+:: Copy the config editor next to where config.txt gets generated
+xcopy "./Extras/halocevr-config-editor.html" "./Output/VR/" /F
 :: Remove any dev files used to generate the bindings
 del ".\Output\VR\OpenVR\*.py"
 :: copy openvr_api.dll to top level
