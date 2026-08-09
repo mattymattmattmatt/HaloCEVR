@@ -913,12 +913,34 @@ void Game::UpdateViewModel(HaloID& id, Vector3* pos, Vector3* facing, Vector3* u
 	VR_PROFILE_SCOPE(Game_UpdateViewModel);
 	weaponHandler.UpdateViewModel(id, pos, facing, up, BoneTransforms, OutBoneTransforms);
 
-	if (Game::instance.bIsFiring)
+#define PLASMA_EYE_DEBUG 0
+#if PLASMA_EYE_DEBUG
+	// TEMP: log per eye so a rendering mismatch between eyes can be traced.
+	// renderState: 0=UNKNOWN 1=LEFT_EYE 2=RIGHT_EYE 3=GAME 4=SCOPE
 	{
-		weaponHandler.SetPlasmaPistolCharge();
+		static int frameSeq = 0;
+		frameSeq++;
+		Logger::log << "[PlasmaEye] seq=" << frameSeq
+			<< " renderState=" << static_cast<int>(GetRenderState())
+			<< " firing=" << bIsFiring
+			<< " weaponType=" << static_cast<int>(weaponHandler.GetCachedWeaponType())
+			<< std::endl;
 	}
+#endif
 
-	weaponHandler.HandlePlasmaPistolCharge();
+	// Only advance the plasma pistol charge once per frame. This function runs
+	// once per rendered eye, and IsPlasmaPistolCharging() mutates state
+	// (RampUpTimer++), so running it on both passes advanced the charge at
+	// double rate and fired the charge haptics twice per frame.
+	if (GetRenderState() == ERenderState::LEFT_EYE || GetRenderState() == ERenderState::GAME)
+	{
+		if (Game::instance.bIsFiring)
+		{
+			weaponHandler.SetPlasmaPistolCharge();
+		}
+
+		weaponHandler.HandlePlasmaPistolCharge();
+	}
 }
 
 void Game::PreFireWeapon(HaloID& weaponID, short param2)

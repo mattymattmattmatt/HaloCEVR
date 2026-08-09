@@ -25,6 +25,8 @@ class WeaponHandler
 {
 public:
 	bool IsCurrentWeaponOneHanded() const;
+	// Debug-only accessor, see PLASMA_EYE_DEBUG in Game.cpp
+	WeaponType GetCachedWeaponType() const { return cachedViewModel.weaponType; }
 	// Origin and aim direction a thrown grenade will actually use, in world space
 	bool GetGrenadeThrowPose(struct Vector3& outPos, struct Vector3& outAim) const;
 	// True if the player has at least one grenade of either type remaining
