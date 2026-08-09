@@ -590,7 +590,11 @@ void Game::DrawGrenadeArc()
 	// Tied to the crosshair toggle so the arc counts as an "aimer" alongside the
 	// world crosshair: crosshair off means a fully clean view with no aim aids,
 	// crosshair on brings back both the reticle and the grenade arc together.
-	if (!c_ShowGrenadeArc->Value() || !bShowCrosshair || !inputHandler.IsGrenadeHeld() || !weaponHandler.HasAnyGrenades())
+	// Also suppressed while in a vehicle: grenades cannot be thrown from inside
+	// one anyway, and the same input can be reused there for something else
+	// entirely (e.g. a tank's secondary fire), which should never trigger the
+	// arc just because it happens to be held.
+	if (!c_ShowGrenadeArc->Value() || !bShowCrosshair || bInVehicle || !inputHandler.IsGrenadeHeld() || !weaponHandler.HasAnyGrenades())
 	{
 		return;
 	}

@@ -97,7 +97,7 @@ void InputHandler::UpdateInputs(bool bInVehicle)
 		ApplyBoolInput(Interact);
 		ApplyBoolInput(Melee);
 		ApplyBoolInput(Flashlight);
-		if (Game::instance.c_ThrowGrenadeOnRelease->Value())
+		if (Game::instance.c_ThrowGrenadeOnRelease->Value() && !bInVehicle)
 		{
 			// Throw on release: track the raw held state ourselves and only report
 			// a press (127) to the game on the frame the button is released, so the
@@ -107,6 +107,12 @@ void InputHandler::UpdateInputs(bool bInVehicle)
 			// repeatedly) during what is physically one continuous hold, so the raw
 			// signal is debounced: a release only counts once the button has read
 			// as not-held for a short window, not on the very first 0 frame.
+			//
+			// Skipped entirely while in a vehicle: the same control byte can be
+			// reused there for something else entirely (e.g. a tank's secondary
+			// machine gun), which needs the raw continuous held-state, not our
+			// on-release pulse - reported as the gun firing once on release
+			// instead of continuously while held.
 			bool bGrenadeRawHeld = vr->GetBoolInput(Grenade);
 
 			if (bGrenadeRawHeld)
@@ -162,7 +168,7 @@ void InputHandler::UpdateInputs(bool bInVehicle)
 		ApplyBoolInput(Interact);
 		ApplyBoolInput(Melee);
 		ApplyBoolInput(Flashlight);
-		if (Game::instance.c_ThrowGrenadeOnRelease->Value())
+		if (Game::instance.c_ThrowGrenadeOnRelease->Value() && !bInVehicle)
 		{
 			// Throw on release: track the raw held state ourselves and only report
 			// a press (127) to the game on the frame the button is released, so the
@@ -172,6 +178,12 @@ void InputHandler::UpdateInputs(bool bInVehicle)
 			// repeatedly) during what is physically one continuous hold, so the raw
 			// signal is debounced: a release only counts once the button has read
 			// as not-held for a short window, not on the very first 0 frame.
+			//
+			// Skipped entirely while in a vehicle: the same control byte can be
+			// reused there for something else entirely (e.g. a tank's secondary
+			// machine gun), which needs the raw continuous held-state, not our
+			// on-release pulse - reported as the gun firing once on release
+			// instead of continuously while held.
 			bool bGrenadeRawHeld = vr->GetBoolInput(Grenade);
 
 			if (bGrenadeRawHeld)
