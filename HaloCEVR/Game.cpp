@@ -195,6 +195,12 @@ void Game::OnInitDirectX()
 		CreateTextureAndSurface(eyeDesc.Width / 2, eyeDesc.Height / 2, eyeDesc.Usage, eyeDesc.Format,
 			&eyeEffectSurfaces[1], &eyeEffectTextures[1]);
 	}
+	// TEMP: confirm this ran at all, and whether creation actually succeeded -
+	// if eyeSurf is null here, GetRenderSurface(0) is not ready yet at this
+	// point in init and the whole redirect silently never happens
+	Logger::log << "[EyeTargetsDebug] init: eyeSurf=" << (eyeSurf ? "valid" : "NULL")
+		<< " surf0=" << (eyeEffectSurfaces[0] ? "created" : "NULL")
+		<< " surf1=" << (eyeEffectSurfaces[1] ? "created" : "NULL") << std::endl;
 
 	uiRenderer = new UIRenderer();
 
@@ -439,6 +445,20 @@ void Game::PreDrawEye(Renderer* renderer, float deltaTime, int eye)
 		primaryRenderTarget[2].width = vr->GetViewWidth() / 2;
 		primaryRenderTarget[2].height = vr->GetViewHeight() / 2;
 	}
+#define EYE_TARGETS_DEBUG 0
+#if EYE_TARGETS_DEBUG
+	// TEMP: log every eye pass while a plasma pistol is charging, so the
+	// visible glow-vs-smear pattern can be lined up against whether the
+	// redirect actually ran on that specific pass
+	if (weaponHandler.GetCachedWeaponType() == WeaponType::PlasmaPistol)
+	{
+		Logger::log << "[EyeTargetsDebug] eye=" << eye
+			<< " redirected=" << (eyeEffectSurfaces[0] && eyeEffectSurfaces[1])
+			<< " target1=" << primaryRenderTarget[1].renderSurface
+			<< " target2=" << primaryRenderTarget[2].renderSurface
+			<< std::endl;
+	}
+#endif
 
 	inGameRenderer.ExtractMatrices(renderer);
 }
