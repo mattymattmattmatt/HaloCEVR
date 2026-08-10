@@ -104,6 +104,39 @@ void Game::Shutdown()
 	}
 }
 
+// Bring Halo's window to the front, working around Windows' foreground lock.
+// SetForegroundWindow is ignored unless the calling process already owns the
+// foreground; briefly attaching to the current foreground thread's input queue
+// makes Windows treat the request as coming from the active app, which is the
+// standard workaround for exactly this.
+void Game::ForceGameWindowFocus()
+{
+	HWND hwnd = gameWindow ? gameWindow : GetActiveWindow();
+	if (!hwnd)
+	{
+		return;
+	}
+
+	const DWORD foregroundThread = GetWindowThreadProcessId(GetForegroundWindow(), nullptr);
+	const DWORD thisThread = GetCurrentThreadId();
+	const bool bAttach = foregroundThread && foregroundThread != thisThread;
+
+	if (bAttach)
+	{
+		AttachThreadInput(foregroundThread, thisThread, TRUE);
+	}
+
+	ShowWindow(hwnd, SW_SHOW);
+	SetForegroundWindow(hwnd);
+	SetActiveWindow(hwnd);
+	SetFocus(hwnd);
+
+	if (bAttach)
+	{
+		AttachThreadInput(foregroundThread, thisThread, FALSE);
+	}
+}
+
 void Game::OnInitDirectX()
 {
 	Logger::log << "[Game] Game has finished DirectX initialisation" << std::endl;
@@ -114,7 +147,20 @@ void Game::OnInitDirectX()
 		return;
 	}
 
-	SetForegroundWindow(GetActiveWindow());
+	// Grab the real window handle from the D3D device rather than
+	// GetActiveWindow(), which returns the *calling thread's* active window and
+	// is frequently null here, so the original call often did nothing at all.
+	D3DDEVICE_CREATION_PARAMETERS params{};
+	if (SUCCEEDED(Helpers::GetDirect3DDevice9()->GetCreationParameters(&params)) && params.hFocusWindow)
+	{
+		gameWindow = params.hFocusWindow;
+	}
+	// Windows refuses foreground changes from a process that does not already
+	// have focus, which is exactly the case when launching from Steam/Virtual
+	// Desktop, so a single attempt at init reliably loses the race. Retry over
+	// the first few seconds instead.
+	focusAttemptsLeft = c_ForceWindowFocus->Value() ? 120 : 0;
+	ForceGameWindowFocus();
 
 	// Ideally these values would be in a 4:3 ratio, but this causes the mouse position to stop aligning correctly
 	overlayWidth = static_cast<UINT>(std::max(vr->GetViewHeight(), vr->GetViewWidth()) * c_UIOverlayRenderScale->Value());
@@ -136,6 +182,19 @@ void Game::OnInitDirectX()
 
 	CreateTextureAndSurface(desc.Width, desc.Height, desc.Usage, desc.Format, &scopeSurfaces[1], &scopeTextures[1]);
 	CreateTextureAndSurface(desc.Width / 2, desc.Height / 2, desc.Usage, desc.Format, &scopeSurfaces[2], &scopeTextures[2]);
+
+	// Same again at eye resolution, for the secondary targets effects sample from
+	// while rendering each eye
+	IDirect3DSurface9* eyeSurf = vr->GetRenderSurface(0);
+	if (eyeSurf)
+	{
+		D3DSURFACE_DESC eyeDesc;
+		eyeSurf->GetDesc(&eyeDesc);
+		CreateTextureAndSurface(eyeDesc.Width, eyeDesc.Height, eyeDesc.Usage, eyeDesc.Format,
+			&eyeEffectSurfaces[0], &eyeEffectTextures[0]);
+		CreateTextureAndSurface(eyeDesc.Width / 2, eyeDesc.Height / 2, eyeDesc.Usage, eyeDesc.Format,
+			&eyeEffectSurfaces[1], &eyeEffectTextures[1]);
+	}
 
 	uiRenderer = new UIRenderer();
 
@@ -353,6 +412,23 @@ void Game::PreDrawEye(Renderer* renderer, float deltaTime, int eye)
 	primaryRenderTarget[0].renderTexture = vr->GetRenderTexture(eye);
 	primaryRenderTarget[0].width = vr->GetViewWidth();
 	primaryRenderTarget[0].height = vr->GetViewHeight();
+
+	// Redirect the secondary targets too. Without this they still point at the
+	// game's original flat-resolution surfaces, so any effect that samples the
+	// scene (the plasma pistol overcharge refraction being the obvious one) reads
+	// stale, wrongly-sized content instead of the eye currently being drawn.
+	if (eyeEffectSurfaces[0] && eyeEffectSurfaces[1])
+	{
+		primaryRenderTarget[1].renderSurface = eyeEffectSurfaces[0];
+		primaryRenderTarget[1].renderTexture = eyeEffectTextures[0];
+		primaryRenderTarget[1].width = vr->GetViewWidth();
+		primaryRenderTarget[1].height = vr->GetViewHeight();
+
+		primaryRenderTarget[2].renderSurface = eyeEffectSurfaces[1];
+		primaryRenderTarget[2].renderTexture = eyeEffectTextures[1];
+		primaryRenderTarget[2].width = vr->GetViewWidth() / 2;
+		primaryRenderTarget[2].height = vr->GetViewHeight() / 2;
+	}
 
 	inGameRenderer.ExtractMatrices(renderer);
 }
