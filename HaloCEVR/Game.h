@@ -186,14 +186,6 @@ protected:
 	struct IDirect3DSurface9* scopeSurfaces[3];
 	struct IDirect3DTexture9* scopeTextures[3];
 
-	// Halo keeps 8 render targets. [0] is the scene, [1] a full-res copy and [2] a
-	// half-res downsample that in-game effects sample from (the scope path already
-	// redirects all three). Eye rendering only redirected [0], leaving effects
-	// sampling the game's original flat-resolution surfaces, so these stand in for
-	// [1] and [2] at eye resolution.
-	struct IDirect3DSurface9* eyeEffectSurfaces[2] = { nullptr, nullptr };
-	struct IDirect3DTexture9* eyeEffectTextures[2] = { nullptr, nullptr };
-
 	ERenderState renderState = ERenderState::UNKNOWN;
 
 	CameraFrustum frustum1;

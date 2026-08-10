@@ -183,24 +183,6 @@ void Game::OnInitDirectX()
 	CreateTextureAndSurface(desc.Width, desc.Height, desc.Usage, desc.Format, &scopeSurfaces[1], &scopeTextures[1]);
 	CreateTextureAndSurface(desc.Width / 2, desc.Height / 2, desc.Usage, desc.Format, &scopeSurfaces[2], &scopeTextures[2]);
 
-	// Same again at eye resolution, for the secondary targets effects sample from
-	// while rendering each eye
-	IDirect3DSurface9* eyeSurf = vr->GetRenderSurface(0);
-	if (eyeSurf)
-	{
-		D3DSURFACE_DESC eyeDesc;
-		eyeSurf->GetDesc(&eyeDesc);
-		CreateTextureAndSurface(eyeDesc.Width, eyeDesc.Height, eyeDesc.Usage, eyeDesc.Format,
-			&eyeEffectSurfaces[0], &eyeEffectTextures[0]);
-		CreateTextureAndSurface(eyeDesc.Width / 2, eyeDesc.Height / 2, eyeDesc.Usage, eyeDesc.Format,
-			&eyeEffectSurfaces[1], &eyeEffectTextures[1]);
-	}
-	// TEMP: confirm this ran at all, and whether creation actually succeeded -
-	// if eyeSurf is null here, GetRenderSurface(0) is not ready yet at this
-	// point in init and the whole redirect silently never happens
-	Logger::log << "[EyeTargetsDebug] init: eyeSurf=" << (eyeSurf ? "valid" : "NULL")
-		<< " surf0=" << (eyeEffectSurfaces[0] ? "created" : "NULL")
-		<< " surf1=" << (eyeEffectSurfaces[1] ? "created" : "NULL") << std::endl;
 
 	uiRenderer = new UIRenderer();
 
@@ -429,36 +411,14 @@ void Game::PreDrawEye(Renderer* renderer, float deltaTime, int eye)
 	primaryRenderTarget[0].width = vr->GetViewWidth();
 	primaryRenderTarget[0].height = vr->GetViewHeight();
 
-	// Redirect the secondary targets too. Without this they still point at the
-	// game's original flat-resolution surfaces, so any effect that samples the
-	// scene (the plasma pistol overcharge refraction being the obvious one) reads
-	// stale, wrongly-sized content instead of the eye currently being drawn.
-	if (eyeEffectSurfaces[0] && eyeEffectSurfaces[1])
-	{
-		primaryRenderTarget[1].renderSurface = eyeEffectSurfaces[0];
-		primaryRenderTarget[1].renderTexture = eyeEffectTextures[0];
-		primaryRenderTarget[1].width = vr->GetViewWidth();
-		primaryRenderTarget[1].height = vr->GetViewHeight();
+	// NOTE: previously redirected targets [1]/[2] here to fix the plasma pistol
+	// overcharge glow's stereo mismatch, but that assumed those targets were
+	// only used by scene-sampling weapon effects. They are not - Halo's own
+	// water reflections and other reflective surfaces use them too, and
+	// redirecting them for the whole eye pass (never restored) broke those
+	// instead, producing an incorrect sheen across water and reflective
+	// geometry. Reverted; the plasma pistol issue is unsolved again.
 
-		primaryRenderTarget[2].renderSurface = eyeEffectSurfaces[1];
-		primaryRenderTarget[2].renderTexture = eyeEffectTextures[1];
-		primaryRenderTarget[2].width = vr->GetViewWidth() / 2;
-		primaryRenderTarget[2].height = vr->GetViewHeight() / 2;
-	}
-#define EYE_TARGETS_DEBUG 0
-#if EYE_TARGETS_DEBUG
-	// TEMP: log every eye pass while a plasma pistol is charging, so the
-	// visible glow-vs-smear pattern can be lined up against whether the
-	// redirect actually ran on that specific pass
-	if (weaponHandler.GetCachedWeaponType() == WeaponType::PlasmaPistol)
-	{
-		Logger::log << "[EyeTargetsDebug] eye=" << eye
-			<< " redirected=" << (eyeEffectSurfaces[0] && eyeEffectSurfaces[1])
-			<< " target1=" << primaryRenderTarget[1].renderSurface
-			<< " target2=" << primaryRenderTarget[2].renderSurface
-			<< std::endl;
-	}
-#endif
 
 	inGameRenderer.ExtractMatrices(renderer);
 }
