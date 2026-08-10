@@ -1713,6 +1713,9 @@ void Game::SetupConfigs()
 	c_ScopeScale = config.RegisterFloat("ScopeScale", "Width of the scope view in metres (6DOF mode)", 0.05f);	
 	c_LockScopeRoll = config.RegisterBool("LockScopeRoll", "Set to true to keep the horizon level at all times in scopes. Leaving as false causes the scope view to rotate with the gun (pre-v1.3.0 behaviour)", true);
 	c_UseOriginalScope = config.RegisterBool("UseOriginalScope", "Use original Halo scope graphics instead of VR weapon-attached scope. Automatically enabled in 3DOF mode.", false);
+	c_ScopeInnerScaleVR = config.RegisterFloat("ScopeInnerScaleVR", "Scale of the reticle/view drawn inside the scope, when using the VR weapon-attached scope (UseOriginalScope false). Was previously a hardcoded 80 - lower this if the reticle looks too large for the scope, e.g. on the rocket launcher", 80.0f);
+	c_ScopeInnerScaleOriginal = config.RegisterFloat("ScopeInnerScaleOriginal", "Scale of the reticle/view drawn inside the scope, when using the original Halo scope graphics (UseOriginalScope true). Was previously a hardcoded 1.6", 1.6f);
+	c_ScopeDepth = config.RegisterFloat("ScopeDepth", "Distance in metres the scope's inner content sits behind the scope lens. Was previously a hardcoded 2", 2.0f);
 	c_ScopeOffsetPistol = config.RegisterVector3("ScopeOffsetPistol", "Offset of the scope view relative to the pistol's location", Vector3(-0.1f, 0.0f, 0.15f));
 	c_ScopeOffsetSniper = config.RegisterVector3("ScopeOffsetSniper", "Offset of the scope view relative to the pistol's location", Vector3(-0.15f, 0.0f, 0.15f));
 	c_ScopeOffsetRocket = config.RegisterVector3("ScopeOffsetRocket", "Offset of the scope view relative to the pistol's location", Vector3(0.1f, 0.2f, 0.1f));
@@ -1990,8 +1993,8 @@ void Game::SetScopeTransform(Matrix4& newTransform, bool bIsVisible)
 
 	inGameRenderer.DrawPolygon(pos, scopeFacing, scopeUp, 32, MetresToWorld(GetScopeSize() * 0.5f), D3DCOLOR_ARGB(0, 0, 0, 0), false);
 
-	float SCOPE_DEPTH = 2.0f;
-	float SCOPE_INNER_SCALE = ShouldUseOriginalScope() ? 1.6f : 80.0f;
+	float SCOPE_DEPTH = c_ScopeDepth->Value();
+	float SCOPE_INNER_SCALE = ShouldUseOriginalScope() ? c_ScopeInnerScaleOriginal->Value() : c_ScopeInnerScaleVR->Value();
 
 	pos = pos - scopeFacing * MetresToWorld(SCOPE_DEPTH);
 	size *= SCOPE_INNER_SCALE;
