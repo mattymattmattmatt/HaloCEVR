@@ -211,6 +211,16 @@ void Game::PreDrawFrame(struct Renderer* renderer, float deltaTime)
 
 	lastDeltaTime = deltaTime;
 
+	// Retry bringing the window to the foreground for the first couple of
+	// seconds after launch (see ForceWindowFocus's registration for why).
+	// PreDrawFrame runs once per frame, not once per eye, so this fires at a
+	// steady, framerate-independent-ish cadence rather than twice as fast.
+	if (focusAttemptsLeft > 0)
+	{
+		focusAttemptsLeft--;
+		ForceGameWindowFocus();
+	}
+
 	renderState = ERenderState::UNKNOWN;
 
 	bool bIsLoading = Helpers::IsCampaignLoading();
@@ -1636,7 +1646,6 @@ void Game::SetupConfigs()
 	c_VerticalVehicleTurnAmount = config.RegisterFloat("VerticalVehicleTurnAmount", "Rotation in degrees per second the view will turn vertically when in vehicles (<0 to invert)", 45.0f);
 	c_VehicleFaceAim = config.RegisterBool("VehicleFaceAim", "When true, vehicle aiming tracks where your head is looking, blended with the stick. Off by default", false);
 	c_ShowWristHUD = config.RegisterBool("ShowWristHUD", "Shows ammo, health and radar on the off hand wrist, visible when raising the hand to look at it", true);
-	c_WristHUDScale = config.RegisterFloat("WristHUDScale", "Width in metres of the wrist HUD overlay", 0.14f);
 	c_WristHUDAmmoScale = config.RegisterFloat("WristHUDAmmoScale", "Width in metres of just the ammo element", 0.13f);
 	c_WristHUDHealthScale = config.RegisterFloat("WristHUDHealthScale", "Width in metres of just the health element", 0.14f);
 	c_WristHUDAmmoHeightStretch = config.RegisterFloat("WristHUDAmmoHeightStretch", "Stretches the ammo element taller (>1) or shorter (<1) independently of its width", 1.0f);
@@ -1647,6 +1656,7 @@ void Game::SetupConfigs()
 	c_WristHUDElementSpacing = config.RegisterFloat("WristHUDElementSpacing", "Vertical gap in metres between the three stacked wrist HUD elements", 0.0f);
 	c_WristHUDRadarScale = config.RegisterFloat("WristHUDRadarScale", "Width in metres of just the radar element. The radar crop is closer to square than ammo/health, so at the same width it renders much taller and can overlap health - kept separate so it can be sized down independently", 0.16f);
 	c_EnableLiveHUDAdjuster = config.RegisterBool("EnableLiveHUDAdjuster", "Enables keyboard hotkeys for tuning wrist HUD placement live in the headset instead of editing config and relaunching. F1 cycles Radar/Ammo/Health/Group, F2/F3 left/right, F4/F6 up/down, PageUp/PageDown depth, F7/F8 roll, Numpad 8/2/4/6 tilt, F9/F10 scale, F11 save to config, F12 log current values, Insert cycles step size", false);
+	c_ForceWindowFocus = config.RegisterBool("ForceWindowFocus", "Repeatedly try to bring the game window to the foreground for the first couple of seconds after launch. Fixes launching via Steam/Virtual Desktop sometimes leaving the game unfocused, with no sound and no input, until manually clicked in the taskbar", false);
 	c_HUDFollowsHeadPitch = config.RegisterBool("HUDFollowsHeadPitch", "When true the floating HUD follows the headset's full rotation including pitch and roll, rather than staying level and following yaw only. Off by default, which is the stock behaviour", false);
 	c_WristHUDAmmoOffset = config.RegisterVector3("WristHUDAmmoOffset", "Fine (forward, left, up) position of just the ammo element, on top of the shared WristHUDOffset", Vector3(-0.0233144f, 0.0f, 0.0388796f));
 	c_WristHUDHealthOffset = config.RegisterVector3("WristHUDHealthOffset", "Fine (forward, left, up) position of just the health element, on top of the shared WristHUDOffset", Vector3(0.0f, 0.0f, 0.02f));

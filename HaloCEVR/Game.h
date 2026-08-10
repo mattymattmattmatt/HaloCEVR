@@ -249,9 +249,9 @@ public:
 	FloatProperty* c_VerticalVehicleTurnAmount = nullptr;
 	BoolProperty* c_VehicleFaceAim = nullptr;
 	BoolProperty* c_ShowWristHUD = nullptr;
-	// WristHUDScale kept for backward compatibility with existing configs, no
-	// longer read directly - ammo/health now have their own scale like radar
-	FloatProperty* c_WristHUDScale = nullptr;
+	// WristHUDScale was replaced by per-element WristHUDAmmoScale/HealthScale/
+	// RadarScale and removed entirely - kept as a comment rather than silently
+	// vanishing from history, so a search for the old name finds an explanation
 	FloatProperty* c_WristHUDAmmoScale = nullptr;
 	FloatProperty* c_WristHUDHealthScale = nullptr;
 	FloatProperty* c_WristHUDAmmoHeightStretch = nullptr;
@@ -262,6 +262,14 @@ public:
 	FloatProperty* c_WristHUDElementSpacing = nullptr;
 	FloatProperty* c_WristHUDRadarScale = nullptr;
 	BoolProperty* c_EnableLiveHUDAdjuster = nullptr;
+	// Windows blocks foreground-window changes from a process that is not
+	// already focused, which is exactly the case launching from Steam/Virtual
+	// Desktop - a single attempt at init reliably loses that race. Retried for
+	// a short window instead, see ForceGameWindowFocus() in Game.cpp.
+	BoolProperty* c_ForceWindowFocus = nullptr;
+	HWND gameWindow = nullptr;
+	int focusAttemptsLeft = 0;
+	void ForceGameWindowFocus();
 	BoolProperty* c_HUDFollowsHeadPitch = nullptr;
 	// Per-element fine position, on top of the shared WristHUDOffset/spacing
 	Vector3Property* c_WristHUDAmmoOffset = nullptr;
