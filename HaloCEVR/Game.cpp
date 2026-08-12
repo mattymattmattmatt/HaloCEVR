@@ -1664,6 +1664,7 @@ void Game::SetupConfigs()
 	c_ThrowGrenadeOnRelease = config.RegisterBool("ThrowGrenadeOnRelease", "Throw the grenade when the grenade button is released, rather than immediately when pressed. Lets you hold the button while winding up the throw motion", false);
 	c_ShowGrenadeArc = config.RegisterBool("ShowGrenadeArc", "Draw a predicted trajectory arc from your throwing hand while the grenade button is held", false);
 	c_GrenadeArcSpeed = config.RegisterFloat("GrenadeArcSpeed", "Grenade launch speed in metres per second for the predicted arc. Measured via two independent in-game timing tests (26.49 and 26.60 m/s, agreeing within 0.4%), rather than guessed", 26.5f);
+	c_GrenadeArcYawOffset = config.RegisterFloat("GrenadeArcYawOffset", "Yaw correction in degrees applied to the grenade arc, compensating for the angle the controller is held at. Automatically mirrored in left handed mode. Tuned for Quest 3 via Virtual Desktop; other controllers may want a different value", -10.0f);
 	c_GrenadeArcGravity = config.RegisterFloat("GrenadeArcGravity", "Assumed gravity in metres per second squared for the predicted arc. Tune alongside GrenadeArcSpeed", 9.8f);
 	c_GrenadeArcSeconds = config.RegisterFloat("GrenadeArcSeconds", "How many seconds of flight the predicted arc covers", 2.5f);
 	c_GrenadeArcSegments = config.RegisterInt("GrenadeArcSegments", "Number of line segments used to draw the predicted arc. Higher is smoother", 40);

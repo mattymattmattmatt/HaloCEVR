@@ -363,3 +363,7 @@ MigrationBackup/
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
 /HaloCEVR.zip
+
+*.patch
+*.zip
+draft-github-issue.md

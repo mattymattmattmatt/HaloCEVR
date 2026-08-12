@@ -289,6 +289,7 @@ public:
 	BoolProperty* c_ThrowGrenadeOnRelease = nullptr;
 	BoolProperty* c_ShowGrenadeArc = nullptr;
 	FloatProperty* c_GrenadeArcSpeed = nullptr;
+	FloatProperty* c_GrenadeArcYawOffset = nullptr;
 	FloatProperty* c_GrenadeArcGravity = nullptr;
 	FloatProperty* c_GrenadeArcSeconds = nullptr;
 	IntProperty* c_GrenadeArcSegments = nullptr;

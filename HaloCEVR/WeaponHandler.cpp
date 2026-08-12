@@ -1041,7 +1041,12 @@ bool WeaponHandler::GetGrenadeThrowPose(Vector3& outPos, Vector3& outAim) const
 	}
 
 	Matrix4 aimOffset;
-	aimOffset.rotate(-10.0f, handRotation3.getColumn(2));
+	float yawOffset = Game::instance.c_GrenadeArcYawOffset->Value();
+	if (Game::instance.bLeftHanded)
+	{
+		yawOffset = -yawOffset;
+	}
+	aimOffset.rotate(yawOffset, handRotation3.getColumn(2));
 	Matrix3 offsetRot;
 	for (int i = 0; i < 3; i++)
 	{
@@ -1112,7 +1117,12 @@ void WeaponHandler::RelocatePlayer(HaloID& PlayerID, bool bUseOffHand)
 			// Small yaw offset so the throw aims out the front of the controller
 			// (raw controller forward was ~10° left of straight)
 			Matrix4 aimOffset;
-			aimOffset.rotate(-10.0f, handRotation3.getColumn(2)); // yaw around hand up
+			float yawOffset = Game::instance.c_GrenadeArcYawOffset->Value();
+			if (Game::instance.bLeftHanded)
+			{
+				yawOffset = -yawOffset;
+			}
+			aimOffset.rotate(yawOffset, handRotation3.getColumn(2)); // yaw around hand up
 			Matrix3 offsetRot;
 			for (int i = 0; i < 3; i++)
 				offsetRot.setColumn(i, &aimOffset.get()[i * 4]);
