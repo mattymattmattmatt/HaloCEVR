@@ -840,7 +840,59 @@ bool InputHandler::GetCalculatedHandPositions(Matrix4& controllerTransform, Vect
 		}
 
 		toOffHand.normalize();
+		{
+			FloatProperty* pitchProp = nullptr;
+			FloatProperty* yawProp = nullptr;
 
+			switch (Game::instance.GetCurrentWeaponType())
+			{
+			case WeaponType::AssaultRifle:
+				pitchProp = Game::instance.c_TwoHandPitchOffsetAssaultRifle;
+				yawProp = Game::instance.c_TwoHandYawOffsetAssaultRifle;
+				break;
+			case WeaponType::Shotgun:
+				pitchProp = Game::instance.c_TwoHandPitchOffsetShotgun;
+				yawProp = Game::instance.c_TwoHandYawOffsetShotgun;
+				break;
+			case WeaponType::Sniper:
+				pitchProp = Game::instance.c_TwoHandPitchOffsetSniper;
+				yawProp = Game::instance.c_TwoHandYawOffsetSniper;
+				break;
+			case WeaponType::RocketLauncher:
+				pitchProp = Game::instance.c_TwoHandPitchOffsetRocket;
+				yawProp = Game::instance.c_TwoHandYawOffsetRocket;
+				break;
+			default:
+				break;
+			}
+
+			if (pitchProp && yawProp)
+			{
+				float pitchAdjust = pitchProp->Value();
+				float yawAdjust = yawProp->Value();
+
+				if (Game::instance.bLeftHanded)
+				{
+					yawAdjust = -yawAdjust;
+				}
+
+				const Vector3 handFwd = aimingTransform.getLeftAxis();
+				const Vector3 handUp = aimingTransform.getUpAxis();
+				const Vector3 handRight = handUp.cross(handFwd);
+
+				const float lx = toOffHand.dot(handFwd);
+				const float ly = toOffHand.dot(handRight);
+				const float lz = toOffHand.dot(handUp);
+
+				const float degToRad = 0.0174532925f;
+				const float pitch = asin(lz) + pitchAdjust * degToRad;
+				const float yaw = atan2(ly, lx) + yawAdjust * degToRad;
+
+				const float cp = cos(pitch);
+				toOffHand = handFwd * (cp * cos(yaw)) + handRight * (cp * sin(yaw)) + handUp * sin(pitch);
+				toOffHand.normalize();
+			}
+		}
 #define TWOHAND_CALIBRATION 1
 #if TWOHAND_CALIBRATION
 		// Calibration: on the frame two-hand grip engages, compare the aim the
