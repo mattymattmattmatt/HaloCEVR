@@ -29,6 +29,10 @@ public:
 
 	// Live in-headset adjustment of HUD element placement, so positioning can be
 	// tuned by watching it move rather than by editing config and relaunching
+	// weaponHandler itself is protected; this exposes just the current weapon
+	// type, which other systems need for weapon-specific behaviour
+	WeaponType GetCurrentWeaponType() const { return weaponHandler.GetCachedWeaponType(); }
+
 	void UpdateLiveHUDAdjuster();
 	int liveAdjustTarget = 0;
 	float liveAdjustStep = 0.01f;

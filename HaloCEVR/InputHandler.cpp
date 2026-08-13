@@ -840,6 +840,59 @@ bool InputHandler::GetCalculatedHandPositions(Matrix4& controllerTransform, Vect
 		}
 
 		toOffHand.normalize();
+
+#define TWOHAND_CALIBRATION 1
+#if TWOHAND_CALIBRATION
+		// Calibration: on the frame two-hand grip engages, compare the aim the
+		// weapon HAD (the controller's own tip facing, which is what one-handed
+		// aiming uses and is correct) against the aim it is ABOUT to take (the
+		// straight line between the two hands). The difference is exactly the
+		// correction that weapon needs.
+		//
+		// Both are expressed in the dominant hand's own frame rather than world
+		// space, so the numbers hold regardless of which way the player happens
+		// to be facing when calibrating.
+		{
+			static bool bWasTwoHanding = false;
+			const bool bNowTwoHanding = Game::instance.bUseTwoHandAim;
+
+			if (bNowTwoHanding && !bWasTwoHanding && bHasPoseData)
+			{
+				Vector3 correctAim = poseDirection;
+				correctAim.normalize();
+
+				// Dominant hand's own axes, to convert both vectors out of world space
+				const Vector3 handFwd = aimingTransform.getLeftAxis();
+				const Vector3 handUp = aimingTransform.getUpAxis();
+				const Vector3 handRight = handUp.cross(handFwd);
+
+				auto toLocal = [&](const Vector3& v) {
+					return Vector3(v.dot(handFwd), v.dot(handRight), v.dot(handUp));
+				};
+				const Vector3 correctLocal = toLocal(correctAim);
+				const Vector3 gripLocal = toLocal(toOffHand);
+
+				const float radToDeg = 57.2957795f;
+				auto pitchOf = [&](const Vector3& v) { return asin(v.z) * radToDeg; };
+				auto yawOf = [&](const Vector3& v) { return atan2(v.y, v.x) * radToDeg; };
+
+				const char* names[] = { "Unknown", "Pistol", "AssaultRifle", "Shotgun",
+					"RocketLauncher", "Sniper", "Flamethrower", "PlasmaPistol",
+					"PlasmaRifle", "PlasmaCannon", "Needler", "FuelRod" };
+				const int typeIdx = static_cast<int>(Game::instance.GetCurrentWeaponType());
+				const char* weaponName = (typeIdx >= 0 && typeIdx < 12) ? names[typeIdx] : "OutOfRange";
+
+				Logger::log << "[TwoHandCal] weapon=" << weaponName
+					<< " pitchDelta=" << (pitchOf(correctLocal) - pitchOf(gripLocal))
+					<< " yawDelta=" << (yawOf(correctLocal) - yawOf(gripLocal))
+					<< "  (correct pitch=" << pitchOf(correctLocal) << " yaw=" << yawOf(correctLocal)
+					<< " | grip pitch=" << pitchOf(gripLocal) << " yaw=" << yawOf(gripLocal) << ")"
+					<< std::endl;
+			}
+			bWasTwoHanding = bNowTwoHanding;
+		}
+#endif
+
 		dominantHandPos = actualControllerPos; 
 		offHand = toOffHand; 
 
