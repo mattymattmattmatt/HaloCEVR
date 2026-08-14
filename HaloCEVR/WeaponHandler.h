@@ -32,13 +32,12 @@ public:
 	// True if the player has at least one grenade of either type remaining
 	bool HasAnyGrenades() const;
 
-	// One-off diagnostic state, see GRENADE_VELOCITY_DEBUG in WeaponHandler.cpp
-	struct Vector3 lastGrenadeThrowOrigin;
-	int grenadeVelocityScanFramesRemaining = 0;
-	int grenadeVelocityScanIndex = 0;
+	// Learned from the last real thrown projectile (metres / s and m/s^2).
+	// False until a throw has been observed this session.
+	bool HasLiveGrenadeBallistics() const { return bHaveLiveGrenadeBallistics; }
+	float GetLiveGrenadeSpeed() const { return liveGrenadeSpeed; }
+	float GetLiveGrenadeGravity() const { return liveGrenadeGravity; }
 
-	// Debug-only, see GRENADE_COUNT_HUNT_DEBUG in WeaponHandler.cpp
-	void DumpPlayerBytesForGrenadeCountHunt(struct BaseDynamicObject* player, int throwIndex);
 	void UpdateGrenadeVelocityScan();
 	void UpdateViewModel(struct HaloID& id, struct Vector3* pos, struct Vector3* facing, struct Vector3* up, struct TransformQuat* boneTransforms, struct Transform* outBoneTransforms);
 	void HandlePlasmaPistolCharge();
@@ -103,6 +102,20 @@ protected:
 
 	// Track previous yaw offset to detect snap turns
 	float lastYawOffset = 0.0f;
+
+	Vector3 lastGrenadeThrowOrigin;
+	int grenadeTrackFramesRemaining = 0;
+	HaloID trackedGrenade{ 0, 0 };
+	bool bHaveTrackedGrenade = false;
+	Vector3 lastTrackedVelocity;
+	bool bHaveLastTrackedVelocity = false;
+	float liveSpeedSamples = 0.0f;
+	int liveSpeedSampleCount = 0;
+	float liveGravitySamples = 0.0f;
+	int liveGravitySampleCount = 0;
+	bool bHaveLiveGrenadeBallistics = false;
+	float liveGrenadeSpeed = 26.5f;
+	float liveGrenadeGravity = 9.8f;
 
 	// Debug stuff for checking where bullets are coming from/going
 #if DRAW_DEBUG_AIM

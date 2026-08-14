@@ -190,6 +190,37 @@ void WeaponHandler::UpdateViewModel(HaloID& id, Vector3* pos, Vector3* facing, V
 	Transform unmodifiedHandTransform;
 	CalculateBoneTransform(cachedViewModel.rightWristIndex, boneArray, root, boneTransforms, unmodifiedHandTransform);
 
+	// Two-hand rocket orients the trigger wrist by the gun's local quat so the
+	// tube does not inherit a world-space fireRotation invert. The off-hand
+	// must be parented to that same placed wrist, not to the raw lookAt frame,
+	// or it floats off the front handle.
+	const bool bTwoHandRocket = Game::instance.bUseTwoHandAim
+		&& cachedViewModel.weaponType == WeaponType::RocketLauncher
+		&& !Game::instance.bUse3DOFAiming;
+	Matrix4 placedRightWrist = handTransform;
+	if (bTwoHandRocket && cachedViewModel.rightWristIndex >= 0
+		&& cachedViewModel.gunIndex >= 0
+		&& boneArray[cachedViewModel.rightWristIndex].RightLeaf == cachedViewModel.gunIndex)
+	{
+		Transform gunLocal{};
+		Helpers::MakeTransformFromQuat(&boneTransforms[cachedViewModel.gunIndex].rotation, &gunLocal);
+		Matrix4 gunLocalRot;
+		for (int x = 0; x < 3; x++)
+		{
+			for (int y = 0; y < 3; y++)
+			{
+				gunLocalRot[x + y * 4] = gunLocal.rotation[x + y * 3];
+			}
+		}
+		if (Game::instance.bLeftHanded)
+		{
+			Matrix4 scale;
+			scale.scale(1.0f, -1.0f, 1.0f);
+			gunLocalRot = scale * gunLocalRot * scale;
+		}
+		placedRightWrist = handTransform * gunLocalRot.invert();
+	}
+
 	Transform realTransforms[64]{};
 
 	if (animationData->NumBones > 0)
@@ -260,48 +291,41 @@ void WeaponHandler::UpdateViewModel(HaloID& id, Vector3* pos, Vector3* facing, V
 				{
 					// 6DOF MODE: VR hand tracking
 					// This is dreadful code. Rework to be less insane
-					if (!Game::instance.bUseTwoHandAim)
+					Matrix4 newTransform = bTwoHandRocket ? placedRightWrist : handTransform;
+					const bool bAlignLocalGun = !Game::instance.bUseTwoHandAim;
+					if (bAlignLocalGun && currentBone.RightLeaf != -1)
 					{
-						Matrix4 newTransform = handTransform;
-						if (currentBone.RightLeaf != -1)
+						Bone& GunBone = boneArray[currentBone.RightLeaf];
+						if (currentBone.RightLeaf == cachedViewModel.gunIndex)
 						{
-							Bone& GunBone = boneArray[currentBone.RightLeaf];
-							if (currentBone.RightLeaf == cachedViewModel.gunIndex)
+							const TransformQuat* GunQuat = &boneTransforms[currentBone.RightLeaf];
+							Helpers::MakeTransformFromQuat(&GunQuat->rotation, &tempTransform);
+
+							Matrix4 rotation;
+							for (int x = 0; x < 3; x++)
 							{
-								const TransformQuat* GunQuat = &boneTransforms[currentBone.RightLeaf];
-								Helpers::MakeTransformFromQuat(&GunQuat->rotation, &tempTransform);
-
-								Matrix4 rotation;
-								for (int x = 0; x < 3; x++)
+								for (int y = 0; y < 3; y++)
 								{
-									for (int y = 0; y < 3; y++)
-									{
-										rotation[x + y * 4] = tempTransform.rotation[x + y * 3];
-									}
+									rotation[x + y * 4] = tempTransform.rotation[x + y * 3];
 								}
-
-								if (Game::instance.bLeftHanded)
-								{
-									Matrix4 scale;
-									scale.scale(1.0f, -1.0f, 1.0f);
-
-									rotation = scale * rotation * scale;
-								}
-
-								newTransform = newTransform * rotation.invert();
-							}
-							else
-							{
-								Logger::log << "ERROR: Right leaf of " << currentBone.BoneName << " is " << GunBone.BoneName << std::endl;
 							}
 
+							if (Game::instance.bLeftHanded)
+							{
+								Matrix4 scale;
+								scale.scale(1.0f, -1.0f, 1.0f);
+
+								rotation = scale * rotation * scale;
+							}
+
+							newTransform = newTransform * rotation.invert();
 						}
-						MoveBoneToTransform(boneIndex, newTransform, realTransforms, outBoneTransforms);
+						else if (!Game::instance.bUseTwoHandAim)
+						{
+							Logger::log << "ERROR: Right leaf of " << currentBone.BoneName << " is " << GunBone.BoneName << std::endl;
+						}
 					}
-					else
-					{
-						MoveBoneToTransform(boneIndex, handTransform, realTransforms, outBoneTransforms);
-					}
+					MoveBoneToTransform(boneIndex, newTransform, realTransforms, outBoneTransforms);
 					CreateEndCap(boneIndex, currentBone, outBoneTransforms);
 				}
 			}
@@ -335,18 +359,19 @@ void WeaponHandler::UpdateViewModel(HaloID& id, Vector3* pos, Vector3* facing, V
 						rightMatrix.invertAffine();
 						Matrix4 deltaMatrix = rightMatrix * leftMatrix;
 
+						Matrix4 offHandParent = bTwoHandRocket ? placedRightWrist : handTransform;
 						if (Game::instance.bLeftHanded)
 						{
 							Matrix4 flip;
 							flip.scale(1.0f, -1.0f, 1.0f);
 
 							deltaMatrix = flip * deltaMatrix * flip;
-							leftMatrix = handTransform * deltaMatrix;
+							leftMatrix = offHandParent * deltaMatrix;
 						}
 						else
 						{
-							// Apply delta to controller transform
-							leftMatrix = handTransform * deltaMatrix;
+							// Apply delta to the same frame the trigger wrist uses
+							leftMatrix = offHandParent * deltaMatrix;
 						}
 
 						// Move non-dominant hand to new transform
@@ -361,6 +386,31 @@ void WeaponHandler::UpdateViewModel(HaloID& id, Vector3* pos, Vector3* facing, V
 				// Skip hand-relative gun calculations in 3DOF mode
 				if (!Game::instance.bUse3DOFAiming)
 				{
+					const bool bTwoHandRocket = Game::instance.bUseTwoHandAim
+						&& cachedViewModel.weaponType == WeaponType::RocketLauncher;
+					if (bTwoHandRocket)
+					{
+						// If the tube is not parented through the VR wrist, the
+						// animated pose stays camera-identity and fireRotation
+						// becomes "world gun vs turning hand" â€” that is the swirl.
+						bool bUnderWrist = false;
+						int parent = currentBone.Parent;
+						for (int guard = 0; parent > 0 && guard < 64; guard++)
+						{
+							if (parent == cachedViewModel.rightWristIndex)
+							{
+								bUnderWrist = true;
+								break;
+							}
+							parent = boneArray[parent].Parent;
+						}
+						if (!bUnderWrist)
+						{
+							MoveBoneToTransform(boneIndex, handTransform, realTransforms, outBoneTransforms);
+						}
+						cachedViewModel.fireRotation.identity();
+					}
+
 					// 6DOF MODE: Calculate gun position/rotation relative to hand
 					Vector3& gunPos = outBoneTransforms[boneIndex].translation;
 					Matrix3 gunRot = outBoneTransforms[boneIndex].rotation;
@@ -392,7 +442,10 @@ void WeaponHandler::UpdateViewModel(HaloID& id, Vector3* pos, Vector3* facing, V
 					cachedViewModel.gunOffset = (gunPos - handPos);
 					cachedViewModel.gunOffset = inverseHand * cachedViewModel.gunOffset;
 
-					cachedViewModel.fireRotation = cachedViewModel.cookedFireRotation * gunRot * inverseHand;
+					if (!(Game::instance.bUseTwoHandAim && cachedViewModel.weaponType == WeaponType::RocketLauncher))
+					{
+						cachedViewModel.fireRotation = cachedViewModel.cookedFireRotation * gunRot * inverseHand;
+					}
 				}
 			}
 
@@ -768,22 +821,48 @@ Matrix4 WeaponHandler::GetDominantHandTransform() const
 		return controllerTransform;
 	}
 
-	Vector3 upVector = controllerTransform.getForwardAxis();
-
-	// In the unlikely event the player decides to put their hand directly above their other hand, avoid a DIV/0 error when doing the lookat
-	if (upVector.dot(toOffHand) == 1.0f)
-	{
-		upVector += controllerTransform.getUpAxis() * 0.001f;
-	}
-
-	/*
-	Matrix3 rot;
-	for (int i = 0; i < 3; i++)
-	{
-		offHandTransform.setColumn(i, &rot.get()[i * 4]);
-	}
-	*/
 	smoothedPosition = Game::instance.GetSmoothedInput();
+
+	// lookAt needs an up that is not parallel to the aim. The old code used the
+	// controller's forward axis and only nudged it on an exact dot==1, which
+	// never fired. A rocket is held along the controller, so that axis is almost
+	// the barrel: the reconstructed roll then spins around the tube when you
+	// turn on the spot with both hands locked. Fall back to a more perpendicular
+	// local axis, then to world-up projected off the aim.
+	Vector3 aimDir = smoothedPosition - actualControllerPos;
+	Vector3 upVector = controllerTransform.getForwardAxis();
+	if (aimDir.lengthSqr() > 1e-8f)
+	{
+		aimDir.normalize();
+
+		auto alignment = [&](const Vector3& up) {
+			return std::abs(up.dot(aimDir));
+		};
+
+		if (alignment(upVector) > 0.7f)
+		{
+			upVector = controllerTransform.getUpAxis();
+		}
+		if (alignment(upVector) > 0.7f)
+		{
+			upVector = controllerTransform.getLeftAxis();
+		}
+		if (alignment(upVector) > 0.7f)
+		{
+			const Vector3 worldUp(0.0f, 0.0f, 1.0f);
+			upVector = worldUp - aimDir * worldUp.dot(aimDir);
+			if (upVector.lengthSqr() < 1e-6f)
+			{
+				upVector = Vector3(0.0f, 1.0f, 0.0f);
+			}
+		}
+
+		if (upVector.lengthSqr() > 1e-8f)
+		{
+			upVector.normalize();
+		}
+	}
+
 	controllerTransform.lookAt(smoothedPosition, upVector);
 
 	controllerTransform.translate(-actualControllerPos);
@@ -791,15 +870,20 @@ Matrix4 WeaponHandler::GetDominantHandTransform() const
 	controllerTransform.rotate(-90.0f, controllerTransform.getLeftAxis());
 	controllerTransform.translate(actualControllerPos);
 
-	// Apply offset from weapon aiming here
-	Matrix4 cachedRot4;
-
-	for (int i = 0; i < 3; i++)
+	// Two-hand rocket aims along the hand line. Applying last frame's
+	// fireRotation here is what made the tube orbit when turning: that
+	// matrix is a world-space gun-vs-hand delta, so it yaws with the player.
+	if (!(Game::instance.bUseTwoHandAim && cachedViewModel.weaponType == WeaponType::RocketLauncher))
 	{
-		cachedRot4.setColumn(i, cachedViewModel.fireRotation.getColumn(i));
-	}
+		Matrix4 cachedRot4;
 
-	controllerTransform *= cachedRot4.invertAffine();
+		for (int i = 0; i < 3; i++)
+		{
+			cachedRot4.setColumn(i, cachedViewModel.fireRotation.getColumn(i));
+		}
+
+		controllerTransform *= cachedRot4.invertAffine();
+	}
 	return controllerTransform;
 }
 
@@ -1106,28 +1190,25 @@ void WeaponHandler::RelocatePlayer(HaloID& PlayerID, bool bUseOffHand)
 
 		if (bUseOffHand)
 		{
-			// Grenade from free off-hand: pure hand pose, no gun barrel offsets
+			// Grenade from free off-hand: same relocate as before (player origin
+			// plus controller, not camera + hand). Writing camera.position into
+			// the player made Halo apply its eye-height offset again, so the
+			// grenade appeared about six feet above the hand.
 			weaponFiredPlayer->position = handPos;
 
-#define GRENADE_VELOCITY_DEBUG 1
-#if GRENADE_VELOCITY_DEBUG
-			lastGrenadeThrowOrigin = handPos;
-#endif
-
-			// Small yaw offset so the throw aims out the front of the controller
-			// (raw controller forward was ~10° left of straight)
 			Matrix4 aimOffset;
 			float yawOffset = Game::instance.c_GrenadeArcYawOffset->Value();
 			if (Game::instance.bLeftHanded)
 			{
 				yawOffset = -yawOffset;
 			}
-			aimOffset.rotate(yawOffset, handRotation3.getColumn(2)); // yaw around hand up
+			aimOffset.rotate(yawOffset, handRotation3.getColumn(2));
 			Matrix3 offsetRot;
 			for (int i = 0; i < 3; i++)
 				offsetRot.setColumn(i, &aimOffset.get()[i * 4]);
 
 			weaponFiredPlayer->aim = (offsetRot * handRotation3) * Vector3(1.0f, 0.0f, 0.0f);
+			lastGrenadeThrowOrigin = handPos;
 		}
 		else if (Game::instance.bUse3DOFAiming)
 		{
@@ -1282,36 +1363,6 @@ void WeaponHandler::PreThrowGrenade(HaloID& playerID)
 	}
 }
 
-#define GRENADE_COUNT_HUNT_DEBUG 1
-#if GRENADE_COUNT_HUNT_DEBUG
-void WeaponHandler::DumpPlayerBytesForGrenadeCountHunt(BaseDynamicObject* player, int throwIndex)
-{
-	// ONE-OFF DIAGNOSTIC. Dumps raw bytes around the player struct as hex after
-	// each real throw, tagged with a throw sequence number. Intent: throw
-	// grenades one at a time from a known starting count down to zero, then diff
-	// consecutive dumps by hand (or with a script) to find whichever byte offset
-	// decrements by exactly 1 each throw and lands on a sane range (e.g. 0-4).
-	// Not meant to run in normal play - a pure memory read, so low risk, but
-	// still diagnostic-only code that should be removed once (if) found.
-	const unsigned char* base = reinterpret_cast<const unsigned char*>(player);
-	const int dumpSize = 0x360; // struct is ~0x328, some headroom in case the
-	                            // count lives just past the last mapped field
-
-	std::ostringstream hex;
-	hex << std::hex << std::setfill('0');
-	for (int i = 0; i < dumpSize; i++)
-	{
-		hex << std::setw(2) << static_cast<int>(base[i]);
-		if ((i + 1) % 4 == 0)
-		{
-			hex << ' ';
-		}
-	}
-
-	Logger::log << "[GrenadeCountHunt] throw#=" << throwIndex << " bytes=" << hex.str() << std::endl;
-}
-#endif
-
 void WeaponHandler::PostThrowGrenade(HaloID& playerID)
 {
 	if (weaponFiredPlayer)
@@ -1321,85 +1372,119 @@ void WeaponHandler::PostThrowGrenade(HaloID& playerID)
 		weaponFiredPlayer = nullptr;
 	}
 
-#if GRENADE_COUNT_HUNT_DEBUG
-	{
-		HaloID localPlayerID;
-		if (Helpers::GetLocalPlayerID(localPlayerID) && localPlayerID == playerID)
-		{
-			BaseDynamicObject* player = Helpers::GetDynamicObject(playerID);
-			if (player)
-			{
-				static int throwCounter = 0;
-				throwCounter++;
-				DumpPlayerBytesForGrenadeCountHunt(player, throwCounter);
-			}
-		}
-	}
-#endif
-
-#if GRENADE_VELOCITY_DEBUG
-	// H_ThrowGrenade is a global engine hook: it fires for ANY unit's grenade
-	// throw, not just the player's (enemy AI grenades hit this exact same hook).
-	// PreThrowGrenade already gates the relocation on this being the local
-	// player's throw; this must do the same, or it triggers on every enemy
-	// grenade thrown nearby too.
 	HaloID localPlayerID;
-	bool bIsLocalPlayerThrow = Helpers::GetLocalPlayerID(localPlayerID) && localPlayerID == playerID;
-
-	if (bIsLocalPlayerThrow)
-	{
-		// A single scan immediately after the throw call returns found nothing
-		// resembling an in-flight grenade across 8 real throws: the closest match
-		// was always the player themselves, and everything else was static level
-		// geometry at fixed positions unrelated to the throw. The likely cause is
-		// that the projectile is not yet created in the object table at that exact
-		// instant. Instead of one scan, run the scan every frame for a short
-		// window afterwards and compare positions across frames: a real thrown
-		// grenade should visibly move frame to frame at a plausible speed, static
-		// geometry will not, regardless of exactly when the projectile spawns.
-		grenadeVelocityScanFramesRemaining = 20;
-		grenadeVelocityScanIndex = 0;
-	}
-#endif
-}
-
-#if GRENADE_VELOCITY_DEBUG
-void WeaponHandler::UpdateGrenadeVelocityScan()
-{
-	if (grenadeVelocityScanFramesRemaining <= 0)
+	if (!Helpers::GetLocalPlayerID(localPlayerID) || localPlayerID != playerID)
 	{
 		return;
 	}
 
-	grenadeVelocityScanFramesRemaining--;
-	grenadeVelocityScanIndex++;
+	// Projectile is often not in the table the instant the throw call returns.
+	// Watch for a few frames and learn speed/gravity from the real object.
+	bHaveTrackedGrenade = false;
+	bHaveLastTrackedVelocity = false;
+	liveSpeedSamples = 0.0f;
+	liveSpeedSampleCount = 0;
+	liveGravitySamples = 0.0f;
+	liveGravitySampleCount = 0;
+	grenadeTrackFramesRemaining = 25;
 
-	ObjectTable& table = Helpers::GetObjectTable();
-	int loggedCount = 0;
-
-	for (uint16_t i = 0; i < table.currentSize && loggedCount < 8; i++)
+	UnitDynamicObject* player = static_cast<UnitDynamicObject*>(Helpers::GetDynamicObject(playerID));
+	if (player && player->thrownGrenade.id != 0 && player->thrownGrenade.id != 0xffff)
 	{
-		ObjectDatum& datum = table.elements[i];
-		if (!datum.dynamicObject)
+		trackedGrenade = player->thrownGrenade;
+		bHaveTrackedGrenade = true;
+	}
+}
+
+void WeaponHandler::UpdateGrenadeVelocityScan()
+{
+	if (grenadeTrackFramesRemaining <= 0)
+	{
+		return;
+	}
+
+	grenadeTrackFramesRemaining--;
+
+	BaseDynamicObject* grenade = nullptr;
+	if (bHaveTrackedGrenade)
+	{
+		grenade = Helpers::GetDynamicObject(trackedGrenade);
+		if (grenade && grenade->N0000027E != ObjectType::PROJECTILE)
 		{
-			continue;
+			grenade = nullptr;
 		}
+	}
 
-		BaseDynamicObject* obj = datum.dynamicObject;
-		float distance = (obj->position - lastGrenadeThrowOrigin).length();
-
-		if (distance < 8.0f)
+	if (!grenade)
+	{
+		ObjectTable& table = Helpers::GetObjectTable();
+		float bestDist = 12.0f;
+		for (uint16_t i = 0; i < table.currentSize; i++)
 		{
-			Logger::log << "[GrenadeVelocityScan] frame=" << grenadeVelocityScanIndex
-				<< " slot=" << i
-				<< " dist=" << distance
-				<< " tagID=" << obj->tagID.id
-				<< " position=" << obj->position
-				<< " velocity=" << obj->velocity
-				<< " speed=" << obj->velocity.length()
-				<< std::endl;
-			loggedCount++;
+			BaseDynamicObject* obj = table.elements[i].dynamicObject;
+			if (!obj || obj->N0000027E != ObjectType::PROJECTILE)
+			{
+				continue;
+			}
+
+			const float speed = obj->velocity.length();
+			if (speed < 0.5f)
+			{
+				continue;
+			}
+
+			const float dist = (obj->position - lastGrenadeThrowOrigin).length();
+			if (dist < bestDist)
+			{
+				bestDist = dist;
+				grenade = obj;
+				trackedGrenade.index = i;
+				trackedGrenade.id = table.elements[i].id;
+				bHaveTrackedGrenade = true;
+			}
+		}
+	}
+
+	if (!grenade)
+	{
+		return;
+	}
+
+	const float speedWorld = grenade->velocity.length();
+	if (speedWorld < 0.5f)
+	{
+		return;
+	}
+
+	const float dt = Game::instance.lastDeltaTime;
+	if (bHaveLastTrackedVelocity && dt > 1e-4f)
+	{
+		const float dvz = grenade->velocity.z - lastTrackedVelocity.z;
+		// Ignore bounce frames (huge dvz) so we only learn air gravity.
+		if (std::abs(dvz) < 8.0f)
+		{
+			liveGravitySamples += Game::instance.WorldToMetres(-dvz / dt);
+			liveGravitySampleCount++;
+		}
+	}
+
+	liveSpeedSamples += Game::instance.WorldToMetres(speedWorld);
+	liveSpeedSampleCount++;
+	lastTrackedVelocity = grenade->velocity;
+	bHaveLastTrackedVelocity = true;
+
+	if (liveSpeedSampleCount >= 3)
+	{
+		liveGrenadeSpeed = liveSpeedSamples / static_cast<float>(liveSpeedSampleCount);
+		if (liveGravitySampleCount >= 3)
+		{
+			liveGrenadeGravity = liveGravitySamples / static_cast<float>(liveGravitySampleCount);
+			if (liveGrenadeGravity < 1.0f) liveGrenadeGravity = 1.0f;
+			if (liveGrenadeGravity > 30.0f) liveGrenadeGravity = 30.0f;
+		}
+		if (liveGrenadeSpeed > 5.0f && liveGrenadeSpeed < 50.0f)
+		{
+			bHaveLiveGrenadeBallistics = true;
 		}
 	}
 }
-#endif

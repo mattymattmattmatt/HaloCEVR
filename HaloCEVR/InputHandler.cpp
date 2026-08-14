@@ -6,6 +6,7 @@
 #include "Helpers/Maths.h"
 #include "Logger.h"
 #include <chrono>
+#include <cmath>
 
 #include <windows.h>
 #include <mmsystem.h>
@@ -508,6 +509,51 @@ void InputHandler::UpdateCamera(float& yaw, float& pitch)
 	float pitchHMD = atan2(lookHMD.z, sqrt(lookHMD.x * lookHMD.x + lookHMD.y * lookHMD.y));
 	float pitchGame = atan2(lookGame.z, sqrt(lookGame.x * lookGame.x + lookGame.y * lookGame.y));
 	pitch = (pitchHMD - pitchGame);
+
+	// Shortest-arc wrap. Without this, exiting a vehicle near the +/-180
+	// boundary injects a near-full-turn slam — one reason the shake was
+	// worse facing some directions than others.
+	const float PI = 3.141593f;
+	while (yaw > PI) yaw -= 2.0f * PI;
+	while (yaw < -PI) yaw += 2.0f * PI;
+
+	const float exitT = Game::instance.GetVehicleExitBlendT();
+	if (exitT > 0.0f)
+	{
+		// exitT is 1 on the hop-out frame and falls to 0. Hold HMD
+		// reconciliation back for the first part of Halo's 3rd→1st camera,
+		// then ease it in. The previous approach applied the full residual
+		// here AND shoved yawOffset in PreDrawFrame, so the two loops fought.
+		float s = 1.0f - exitT;
+		float delayed = (s - 0.4f) / 0.6f;
+		if (delayed < 0.0f) delayed = 0.0f;
+		if (delayed > 1.0f) delayed = 1.0f;
+		const float inject = delayed * delayed * (3.0f - 2.0f * delayed);
+
+		const float dt = Game::instance.lastDeltaTime;
+		float rate = Game::instance.c_VehicleExitBlendRate
+			? Game::instance.c_VehicleExitBlendRate->Value() : 6.0f;
+		if (rate < 0.0f) rate = 0.0f;
+		float absorb = 1.0f - expf(-rate * dt);
+		if (absorb > 0.25f) absorb = 0.25f;
+		absorb *= (1.0f - inject);
+
+		const float RadToDeg = 180.0f / PI;
+		float stepDeg = yaw * RadToDeg * absorb;
+		const float maxStep = 120.0f * (dt > 0.0f ? dt : 0.0f);
+		if (stepDeg > maxStep) stepDeg = maxStep;
+		if (stepDeg < -maxStep) stepDeg = -maxStep;
+		vr->SetYawOffset(vr->GetYawOffset() + stepDeg);
+
+		yaw *= inject;
+		pitch *= inject;
+	}
+}
+
+void InputHandler::NotifyVehicleExit()
+{
+	vehicleFaceAimYaw = 0.0f;
+	vehicleFaceAimPitch = 0.0f;
 }
 
 void InputHandler::UpdateCameraForVehicles(float& yaw, float& pitch)
@@ -867,7 +913,7 @@ bool InputHandler::GetCalculatedHandPositions(Matrix4& controllerTransform, Vect
 			}
 		}
 
-#define TWOHAND_SPIN_DEBUG 1
+#define TWOHAND_SPIN_DEBUG 0
 #if TWOHAND_SPIN_DEBUG
 		// Continuous log while two-hand aiming, throttled, so a spin can be traced.
 		// Captures the raw inputs the aim is built from, not just the result, so we
@@ -935,7 +981,14 @@ bool InputHandler::GetCalculatedHandPositions(Matrix4& controllerTransform, Vect
 
 				const float degToRad = 0.0174532925f;
 
-				if (Game::instance.c_TwoHandRollStabilised->Value())
+				// Rocket yaw offset is ~13°, far larger than the other two-handers.
+				// In the hand frame that correction rolls with the wrist, so a
+				// turn-in-place with locked arms swings the tube around. World-up
+				// keeps the same heading bias without that orbit.
+				const bool bWorldFrame = Game::instance.c_TwoHandRollStabilised->Value()
+					|| Game::instance.GetCurrentWeaponType() == WeaponType::RocketLauncher;
+
+				if (bWorldFrame)
 				{
 					// World-referenced: pitch is elevation above horizontal, yaw is a compass
 					// heading. Z is up in this space (the SteamVR conversion maps its Y into Z,
@@ -968,7 +1021,7 @@ bool InputHandler::GetCalculatedHandPositions(Matrix4& controllerTransform, Vect
 				}
 			}
 		}
-#define TWOHAND_CALIBRATION 1
+#define TWOHAND_CALIBRATION 0
 #if TWOHAND_CALIBRATION
 		// Calibration: on the frame two-hand grip engages, compare the aim the
 		// weapon HAD (the controller's own tip facing, which is what one-handed

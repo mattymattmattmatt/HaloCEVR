@@ -12,6 +12,7 @@ public:
 	bool IsGrenadeHeld() const;
 	void UpdateCamera(float& yaw, float& pitch);
 	void UpdateCameraForVehicles(float& yaw, float& pitch);
+	void NotifyVehicleExit();
 	void SetMousePosition(int& x, int& y);
 	void UpdateMouseInfo(struct MouseInfo* mouseInfo);
 	bool GetCalculatedHandPositions(Matrix4& controllerTransform, Vector3& dominantHandPos, Vector3& offHand);

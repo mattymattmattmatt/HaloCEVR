@@ -221,9 +221,11 @@ void OpenVR::OnGameFinishInit()
 	// Eyes
 	CreateTexAndSurface(0, recommendedWidth, recommendedHeight, desc.Usage, desc.Format);
 	CreateTexAndSurface(1, recommendedWidth, recommendedHeight, desc.Usage, desc.Format);
-	// UI Layers
-	CreateTexAndSurface(uiSurface, Game::instance.overlayWidth, Game::instance.overlayHeight, desc2.Usage, desc2.Format);
-	CreateTexAndSurface(crosshairSurface, Game::instance.overlayWidth, Game::instance.overlayHeight, desc2.Usage, desc2.Format);
+	// UI Layers. Halo's own UI RT is sometimes X8 (no alpha). The overlay is
+	// premultiplied and needs a real alpha channel so unused HUD padding can
+	// be punched to transparent - see Game::FixHUDOverlayAlpha.
+	CreateTexAndSurface(uiSurface, Game::instance.overlayWidth, Game::instance.overlayHeight, desc2.Usage, D3DFMT_A8R8G8B8);
+	CreateTexAndSurface(crosshairSurface, Game::instance.overlayWidth, Game::instance.overlayHeight, desc2.Usage, D3DFMT_A8R8G8B8);
 	
 	scopeWidth = static_cast<uint32_t>(Game::instance.c_ScopeRenderScale->Value() * recommendedWidth);
 	scopeHeight = static_cast<uint32_t>(Game::instance.c_ScopeRenderScale->Value() * recommendedWidth * 0.75f); // Maintain the 4x3 aspect ratio halo works best with

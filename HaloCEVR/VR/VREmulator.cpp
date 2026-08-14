@@ -484,7 +484,7 @@ void VREmulator::CreateSharedTarget()
 	CreateTexAndSurface(0, width, height, desc.Usage, desc.Format);
 	CreateTexAndSurface(1, width, height, desc.Usage, desc.Format);
 
-	HRESULT res = Helpers::GetDirect3DDevice9()->CreateTexture(Game::instance.overlayWidth, Game::instance.overlayHeight, 1, desc2.Usage, desc2.Format, D3DPOOL_DEFAULT, &uiTexture, NULL);
+	HRESULT res = Helpers::GetDirect3DDevice9()->CreateTexture(Game::instance.overlayWidth, Game::instance.overlayHeight, 1, desc2.Usage, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &uiTexture, NULL);
 
 	if (FAILED(res))
 	{
@@ -498,7 +498,7 @@ void VREmulator::CreateSharedTarget()
 		Logger::log << "Couldn't create UI render target: " << res << std::endl;
 	}
 
-	res = Helpers::GetDirect3DDevice9()->CreateTexture(Game::instance.overlayWidth, Game::instance.overlayHeight, 1, desc2.Usage, desc2.Format, D3DPOOL_DEFAULT, &crosshairTexture, NULL);
+	res = Helpers::GetDirect3DDevice9()->CreateTexture(Game::instance.overlayWidth, Game::instance.overlayHeight, 1, desc2.Usage, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &crosshairTexture, NULL);
 
 	if (FAILED(res))
 	{

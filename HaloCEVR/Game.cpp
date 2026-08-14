@@ -1,6 +1,9 @@
 #include <chrono>
 #include <cmath>
 #include "Game.h"
+#include <d3dcompiler.h>
+
+#pragma comment(lib, "d3dcompiler.lib")
 #include "Logger.h"
 #include "Hooking/Hooks.h"
 #include "Helpers/DX9.h"
@@ -73,6 +76,8 @@ void Game::Shutdown()
 	bHasShutdown = true;
 
 	Logger::log << "[Game] HaloCEVR shutting down..." << std::endl;
+
+	ReleaseHUDAlphaFixResources();
 
 	vr->Shutdown();
 
@@ -269,67 +274,33 @@ void Game::PreDrawFrame(struct Renderer* renderer, float deltaTime)
 
 			bShowViewModel = bNewShowViewModel;
 		}
-		// On leaving a vehicle the yawOffset accumulated by the vehicle camera is
-		// stale for the on-foot reconciliation, which causes a camera whip.
-		// Open a short correction window rather than correcting in a single frame
-		// (which is itself a visible snap).
+		// On leaving a vehicle Halo plays its own 3rd→1st person camera.
+		// Open a blend window so on-foot HMD reconciliation does not fight
+		// that animation (the fight is the shake). Correction itself lives
+		// in InputHandler::UpdateCamera so only one system touches yaw.
 		if (bInVehicle && !bNewShowViewModel)
 		{
 			vehicleExitBlendT = 1.0f;
+			inputHandler.NotifyVehicleExit();
+		}
+		else if (!bInVehicle && bNewShowViewModel)
+		{
+			vehicleExitBlendT = 0.0f;
 		}
 
-		// While the window is open, continuously drive the LIVE HMD-vs-game yaw
-		// residual towards zero. Recomputing every frame, rather than easing to a
-		// target captured on the exit frame, means the correction keeps tracking
-		// the engine's own third-to-first person exit camera while that is still
-		// moving. A fixed target goes stale as soon as the engine camera moves,
-		// which is what made the settle inconsistent.
 		if (vehicleExitBlendT > 0.0f)
 		{
-			const float duration = c_VehicleExitBlendDuration
-				? c_VehicleExitBlendDuration->Value() : 0.35f;
-			const float rate = c_VehicleExitBlendRate
-				? c_VehicleExitBlendRate->Value() : 8.0f;
+			float duration = c_VehicleExitBlendDuration
+				? c_VehicleExitBlendDuration->Value() : 0.75f;
+			// Old configs shipped 0.35s, which ends while Halo's exit camera
+			// is still moving. Floor so those files still get a full settle.
+			if (duration < 0.6f) duration = 0.6f;
 
 			vehicleExitBlendT -= lastDeltaTime / (duration > 0.01f ? duration : 0.01f);
 			if (vehicleExitBlendT < 0.0f)
 			{
 				vehicleExitBlendT = 0.0f;
 			}
-
-			IVR* vr = GetVR();
-			Vector3 lookHMD = vr->GetHMDTransform().getLeftAxis();
-			Vector3 lookGame = bDetectedChimera ? LastLookDir : Helpers::GetCamera().lookDir;
-			float yawHMD = atan2(lookHMD.y, lookHMD.x);
-			float yawGame = atan2(lookGame.y, lookGame.x);
-
-			// yawOffset is in DEGREES (see SnapTurnAmount / SmoothTurnAmount usage),
-			// but atan2 returns RADIANS, so the residual must be converted.
-			const float RadToDeg = 180.0f / 3.141593f;
-			float residual = (yawHMD - yawGame) * RadToDeg;
-
-			// Always correct the short way around. Without this, exiting while
-			// facing near the +/-180 degree boundary sends the view the long way
-			// round, which is why the wobble depended on which way you were facing.
-			while (residual > 180.0f)
-			{
-				residual -= 360.0f;
-			}
-			while (residual < -180.0f)
-			{
-				residual += 360.0f;
-			}
-
-			// Approach the correction a fraction at a time: strong while the error
-			// is large, easing off as it converges. Scaled by frame time so the
-			// settle behaves the same at any framerate.
-			float alpha = rate * lastDeltaTime;
-			if (alpha > 1.0f)
-			{
-				alpha = 1.0f;
-			}
-
-			vr->SetYawOffset(vr->GetYawOffset() + residual * alpha);
 		}
 
 		bInVehicle = bNewShowViewModel;
@@ -679,15 +650,31 @@ void Game::DrawGrenadeArc()
 	}
 
 	const float totalTime = c_GrenadeArcSeconds->Value();
-	const float dt = totalTime / static_cast<float>(segments);
+	// Halo simulates projectiles on a 30Hz tick. Stepping the preview on that
+	// cadence matches the real grenade much more closely than one big Euler
+	// step per drawn segment.
+	const float tick = 1.0f / 30.0f;
+	int ticks = static_cast<int>(totalTime / tick);
+	if (ticks < segments)
+	{
+		ticks = segments;
+	}
 
-	// Simple ballistic integration. The launch speed and gravity are assumed values
-	// rather than read from the game's own projectile data, so they are exposed as
-	// config and tuned by eye against where grenades actually land.
-	Vector3 velocity = aim * MetresToWorld(c_GrenadeArcSpeed->Value());
-	const float gravityPerStep = MetresToWorld(c_GrenadeArcGravity->Value()) * dt;
+	float speed = c_GrenadeArcSpeed->Value();
+	float gravity = c_GrenadeArcGravity->Value();
+	if (weaponHandler.HasLiveGrenadeBallistics())
+	{
+		speed = weaponHandler.GetLiveGrenadeSpeed();
+		gravity = weaponHandler.GetLiveGrenadeGravity();
+	}
 
-	Vector3 pos = startPos;
+	Vector3 velocity = aim * MetresToWorld(speed);
+	const float gravityPerTick = MetresToWorld(gravity) * tick;
+
+	// Start just past the off-hand so the first segment does not clip through
+	// the controller/fingers. 18cm is enough to clear the grip without a
+	// visible gap in the trajectory.
+	Vector3 pos = startPos + aim * MetresToWorld(0.18f);
 
 	// Dashed line: each step alternates between a drawn segment and a gap. Both the
 	// dash and the gap shrink along the arc's length, so the pattern reads as dense
@@ -696,10 +683,20 @@ void Game::DrawGrenadeArc()
 	bool bDrawThisStep = true;
 	float dashPhaseAccum = 0.0f;
 
+	const int ticksPerSegment = ticks / segments;
+	int tickIndex = 0;
 	for (int i = 0; i < segments; i++)
 	{
-		Vector3 nextPos = pos + velocity * dt;
-		velocity.z -= gravityPerStep;
+		Vector3 nextPos = pos;
+		const int stepsThisSeg = (i == segments - 1)
+			? (ticks - tickIndex)
+			: ticksPerSegment;
+		for (int s = 0; s < stepsThisSeg; s++)
+		{
+			nextPos = nextPos + velocity * tick;
+			velocity.z -= gravityPerTick;
+			tickIndex++;
+		}
 
 		// Fade the arc out along its length so the far, least reliable end is faintest
 		const float t = static_cast<float>(i) / static_cast<float>(segments);
@@ -825,6 +822,8 @@ void Game::PostDrawHUD()
 	Helpers::GetRenderTargets()[1].renderSurface = uiRealSurface;
 	Helpers::GetDirect3DDevice9()->SetRenderTarget(0, uiRealSurface);
 
+	// uiSurface is no longer the bound target, so UpdateSurface is legal here.
+	FixHUDOverlayAlpha();
 }
 
 bool Game::PreDrawMenu()
@@ -1025,32 +1024,6 @@ void Game::PreThrowGrenade(HaloID& playerID)
 {
 	VR_PROFILE_SCOPE(Game_PreThrowGrenade);
 	weaponHandler.PreThrowGrenade(playerID);
-
-	// TEMP TEST - grenade calibration: start the stopwatch on a real local
-	// player throw, and log the launch angle at the same instant. Any throw
-	// angle works now - the tag data confirms initial velocity is a single
-	// fixed speed, only direction varies with aim, so we no longer need a
-	// specifically vertical throw. Press F7 the instant the grenade LANDS
-	// (not when it detonates - that's a separate fixed timer) to log flight
-	// time, giving an (angle, time) pair per throw.
-	{
-		HaloID localPlayerID;
-		if (Helpers::GetLocalPlayerID(localPlayerID) && localPlayerID == playerID)
-		{
-			Vector3 throwPos, throwAim;
-			if (weaponHandler.GetGrenadeThrowPose(throwPos, throwAim))
-			{
-				// Local axes are (forward, left, up), aim is normalised, so pitch
-				// above horizontal is asin of the up component
-				double pitchDegrees = std::asin(std::max(-1.0f, std::min(1.0f, throwAim.z))) * (180.0 / 3.14159265358979);
-				Logger::log << "[GrenadeCalibration] Throw detected, angle=" << pitchDegrees
-					<< " degrees above horizontal. Timer started, press F7 when it lands." << std::endl;
-			}
-
-			bGrenadeCalibrationActive = true;
-			grenadeCalibrationStart = std::chrono::steady_clock::now();
-		}
-	}
 }
 
 void Game::PostThrowGrenade(HaloID& playerID)
@@ -1327,20 +1300,6 @@ void Game::UpdateInputs()
 
 	bWasPressed = bPressed;
 #endif
-
-	// TEMP TEST - grenade calibration stopwatch stop key
-	{
-		static bool bWasF7Pressed = false;
-		bool bF7Pressed = (GetAsyncKeyState(VK_F7) & 0x8000) != 0;
-		if (bF7Pressed && !bWasF7Pressed && bGrenadeCalibrationActive)
-		{
-			auto elapsed = std::chrono::steady_clock::now() - grenadeCalibrationStart;
-			double seconds = std::chrono::duration<double>(elapsed).count();
-			Logger::log << "[GrenadeCalibration] Flight time: " << seconds << " seconds" << std::endl;
-			bGrenadeCalibrationActive = false;
-		}
-		bWasF7Pressed = bF7Pressed;
-	}
 }
 
 void Game::CalculateSmoothedInput()
@@ -1663,7 +1622,7 @@ void Game::SetupConfigs()
 	c_DisableTwoHandForOneHanded = config.RegisterBool("DisableTwoHandForOneHanded", "Prevent the two hand grip from activating while holding a one handed weapon (pistol, plasma pistol, plasma rifle or needler), which has no real two handed hold", true);
 	c_ThrowGrenadeOnRelease = config.RegisterBool("ThrowGrenadeOnRelease", "Throw the grenade when the grenade button is released, rather than immediately when pressed. Lets you hold the button while winding up the throw motion", false);
 	c_ShowGrenadeArc = config.RegisterBool("ShowGrenadeArc", "Draw a predicted trajectory arc from your throwing hand while the grenade button is held", false);
-	c_GrenadeArcSpeed = config.RegisterFloat("GrenadeArcSpeed", "Grenade launch speed in metres per second for the predicted arc. Measured via two independent in-game timing tests (26.49 and 26.60 m/s, agreeing within 0.4%), rather than guessed", 26.5f);
+	c_GrenadeArcSpeed = config.RegisterFloat("GrenadeArcSpeed", "Fallback grenade launch speed in metres per second for the predicted arc, used until a real throw has been observed this session. After that the arc learns speed and gravity from the live projectile", 26.5f);
 	c_GrenadeArcYawOffset = config.RegisterFloat("GrenadeArcYawOffset", "Yaw correction in degrees applied to the grenade arc, compensating for the angle the controller is held at. Automatically mirrored in left handed mode. Tuned for Quest 3 via Virtual Desktop; other controllers may want a different value", -10.0f);
 	c_TwoHandPitchOffsetAssaultRifle = config.RegisterFloat("TwoHandPitchOffsetAssaultRifle", "Pitch correction in degrees applied to two-handed aim for the AssaultRifle, so gripping does not shift aim away from where the weapon was already pointing. Measured value", -7.08f);
 	c_TwoHandYawOffsetAssaultRifle = config.RegisterFloat("TwoHandYawOffsetAssaultRifle", "Yaw correction in degrees applied to two-handed aim for the AssaultRifle, alongside TwoHandPitchOffsetAssaultRifle. Automatically mirrored in left handed mode", 0.27f);
@@ -1675,15 +1634,15 @@ void Game::SetupConfigs()
 	c_TwoHandYawOffsetRocket = config.RegisterFloat("TwoHandYawOffsetRocket", "Yaw correction in degrees applied to two-handed aim for the RocketLauncher, alongside TwoHandPitchOffsetRocket. Automatically mirrored in left handed mode", 13.20f);
 	c_TwoHandRollStabilised = config.RegisterBool("TwoHandRollStabilised", "Applies the two-handed aim corrections about world up rather than the hand's own up axis. The hand frame rolls with your wrist, so a large correction swings as the wrist rolls, making the weapon swirl toward the ground when turning. Changes the frame the offsets are measured in, so recalibrate after enabling", false);
 	c_TwoHandFacingBlend = config.RegisterFloat("TwoHandFacingBlend", "Only affects the rocket launcher (the other two-handed weapons are already corrected well by their fixed offsets alone). Blends its two-handed aim between the straight line to the off hand (0) and the dominant controller's own facing (1). Testing found even a full blend of 1 does not fully stop it swirling when turning with it gripped, so this is unlikely to fully fix it on its own - the remaining cause looks like the weapon's own model/bone data rather than anything in the aim calculation", 0.0f);
-	c_GrenadeArcGravity = config.RegisterFloat("GrenadeArcGravity", "Assumed gravity in metres per second squared for the predicted arc. Tune alongside GrenadeArcSpeed", 9.8f);
+	c_GrenadeArcGravity = config.RegisterFloat("GrenadeArcGravity", "Fallback gravity in metres per second squared for the predicted arc, used until a real throw has been observed this session", 9.8f);
 	c_GrenadeArcSeconds = config.RegisterFloat("GrenadeArcSeconds", "How many seconds of flight the predicted arc covers", 2.5f);
 	c_GrenadeArcSegments = config.RegisterInt("GrenadeArcSegments", "Number of line segments used to draw the predicted arc. Higher is smoother", 40);
 	c_GrenadeArcDashed = config.RegisterBool("GrenadeArcDashed", "Draw the grenade arc as a dashed line, with dashes shrinking towards the far end, rather than a solid line", true);
 	c_VehicleFaceAimBlend = config.RegisterFloat("VehicleFaceAimBlend", "How much head-aim vs stick contributes in vehicles (0 = pure stick, 1 = pure head aim)", 0.8f);
 	c_VehicleFaceAimSmoothing = config.RegisterFloat("VehicleFaceAimSmoothing", "Smoothing applied to vehicle head-aim (0 = instant, 0.5 = moderate, 0.9 = heavy lag)", 0.4f);
 	c_VehicleFaceAimSpeed = config.RegisterFloat("VehicleFaceAimSpeed", "How quickly vehicle head-aim follows your head. Higher is faster/snappier", 7.0f);
-	c_VehicleExitBlendDuration = config.RegisterFloat("VehicleExitBlendDuration", "How long in seconds the camera correction runs for after leaving a vehicle", 0.35f);
-	c_VehicleExitBlendRate = config.RegisterFloat("VehicleExitBlendRate", "How strongly the camera is corrected after leaving a vehicle. Higher settles faster but is more abrupt", 8.0f);
+	c_VehicleExitBlendDuration = config.RegisterFloat("VehicleExitBlendDuration", "How long in seconds the 3rd-to-1st person exit camera is blended after leaving a vehicle. Too short and the view slams when Halo's own exit camera is still moving", 0.75f);
+	c_VehicleExitBlendRate = config.RegisterFloat("VehicleExitBlendRate", "How quickly yawOffset absorbs the leftover HMD-vs-game residual during a vehicle exit. Higher catches up faster", 6.0f);
 	c_StabiliseCutsceneCamera = config.RegisterBool("StabiliseCutsceneCamera", "Stop injecting VR camera corrections during cutscenes. The cinematic script drives the camera, so correcting towards the headset fights it and can cause the view to oscillate", false);
 	c_ToggleGrip = config.RegisterBool("ToggleGrip", "When true releasing two handed weapons requires pressing the grip action again", false);
 	c_TwoHandDistance = config.RegisterFloat("TwoHandDistance", "How close your off hand must be to your weapon hand for gripping to enable two handed aiming. Higher = works with hands further apart, lower = they must be closer together. <0 allows any distance", 0.8f);
@@ -1991,6 +1950,260 @@ void Game::SetScopeTransform(Matrix4& newTransform, bool bIsVisible)
 	size *= SCOPE_INNER_SCALE;
 
 	inGameRenderer.DrawRenderTarget(vr->GetScopeTexture(), pos, rot, size, false, true);
+}
+
+void Game::ReleaseHUDAlphaFixResources()
+{
+	if (uiAlphaFixCopySurface)
+	{
+		uiAlphaFixCopySurface->Release();
+		uiAlphaFixCopySurface = nullptr;
+	}
+	if (uiAlphaFixCopyTexture)
+	{
+		uiAlphaFixCopyTexture->Release();
+		uiAlphaFixCopyTexture = nullptr;
+	}
+	if (uiAlphaFixPixelShader)
+	{
+		uiAlphaFixPixelShader->Release();
+		uiAlphaFixPixelShader = nullptr;
+	}
+	uiAlphaFixWidth = 0;
+	uiAlphaFixHeight = 0;
+	uiAlphaFixFormat = D3DFMT_UNKNOWN;
+}
+
+bool Game::EnsureHUDAlphaFixResources(IDirect3DDevice9* device, const D3DSURFACE_DESC& desc)
+{
+	if (!uiAlphaFixPixelShader && !uiAlphaFixShaderFailed)
+	{
+		// Same rule as the old CPU walk: near-black padding (max RGB < 10/255)
+		// loses dest-alpha so the premultiplied overlay does not treat it as a
+		// solid plate. Runs entirely on the GPU - a CPU readback of this surface
+		// every frame stalls the pipeline and can drop a locked 72Hz headset
+		// into the teens.
+		static const char kShader[] =
+			"sampler2D s0 : register(s0);\n"
+			"float4 main(float2 uv : TEXCOORD0) : COLOR\n"
+			"{\n"
+			"    float4 c = tex2D(s0, uv);\n"
+			"    float m = max(c.r, max(c.g, c.b));\n"
+			"    if (m < 0.0392157)\n"
+			"        c.a = 0;\n"
+			"    return c;\n"
+			"}\n";
+
+		ID3DBlob* code = nullptr;
+		ID3DBlob* errors = nullptr;
+		HRESULT compiled = D3DCompile(kShader, sizeof(kShader) - 1, "HUDAlphaFix", nullptr, nullptr, "main", "ps_2_0", 0, 0, &code, &errors);
+		if (FAILED(compiled) || !code)
+		{
+			Logger::log << "[HUD] Could not compile overlay alpha-fix shader: " << compiled;
+			if (errors)
+			{
+				Logger::log << " " << static_cast<const char*>(errors->GetBufferPointer());
+				errors->Release();
+			}
+			Logger::log << std::endl;
+			uiAlphaFixShaderFailed = true;
+			return false;
+		}
+		if (errors)
+		{
+			errors->Release();
+		}
+
+		HRESULT created = device->CreatePixelShader(static_cast<const DWORD*>(code->GetBufferPointer()), &uiAlphaFixPixelShader);
+		code->Release();
+		if (FAILED(created) || !uiAlphaFixPixelShader)
+		{
+			Logger::log << "[HUD] Could not create overlay alpha-fix shader: " << created << std::endl;
+			uiAlphaFixShaderFailed = true;
+			return false;
+		}
+
+		Logger::log << "[HUD] GPU overlay alpha-fix ready" << std::endl;
+	}
+
+	if (!uiAlphaFixPixelShader)
+	{
+		return false;
+	}
+
+	if (uiAlphaFixCopyTexture && uiAlphaFixWidth == desc.Width && uiAlphaFixHeight == desc.Height && uiAlphaFixFormat == desc.Format)
+	{
+		return true;
+	}
+
+	if (uiAlphaFixCopySurface)
+	{
+		uiAlphaFixCopySurface->Release();
+		uiAlphaFixCopySurface = nullptr;
+	}
+	if (uiAlphaFixCopyTexture)
+	{
+		uiAlphaFixCopyTexture->Release();
+		uiAlphaFixCopyTexture = nullptr;
+	}
+
+	CreateTextureAndSurface(desc.Width, desc.Height, D3DUSAGE_RENDERTARGET, desc.Format, &uiAlphaFixCopySurface, &uiAlphaFixCopyTexture);
+	if (!uiAlphaFixCopyTexture || !uiAlphaFixCopySurface)
+	{
+		Logger::log << "[HUD] Could not create overlay alpha-fix copy target" << std::endl;
+		return false;
+	}
+
+	uiAlphaFixWidth = desc.Width;
+	uiAlphaFixHeight = desc.Height;
+	uiAlphaFixFormat = desc.Format;
+	return true;
+}
+
+void Game::FixHUDOverlayAlpha()
+{
+	VR_PROFILE_SCOPE(Game_FixHUDOverlayAlpha);
+
+	if (!uiSurface)
+	{
+		return;
+	}
+
+	IDirect3DDevice9* device = Helpers::GetDirect3DDevice9();
+	if (!device)
+	{
+		return;
+	}
+
+	D3DSURFACE_DESC desc{};
+	if (FAILED(uiSurface->GetDesc(&desc)))
+	{
+		return;
+	}
+
+	if (!EnsureHUDAlphaFixResources(device, desc))
+	{
+		return;
+	}
+
+	// Cannot sample a bound render target. Copy first, then redraw uiSurface
+	// through the punch shader. StretchRect stays on the GPU.
+	if (FAILED(device->StretchRect(uiSurface, nullptr, uiAlphaFixCopySurface, nullptr, D3DTEXF_NONE)))
+	{
+		return;
+	}
+
+	IDirect3DSurface9* prevRT = nullptr;
+	device->GetRenderTarget(0, &prevRT);
+	if (FAILED(device->SetRenderTarget(0, uiSurface)))
+	{
+		if (prevRT)
+		{
+			prevRT->Release();
+		}
+		return;
+	}
+
+	IDirect3DPixelShader9* prevShader = nullptr;
+	IDirect3DBaseTexture9* prevTexture = nullptr;
+	IDirect3DVertexDeclaration9* prevDecl = nullptr;
+	DWORD prevFVF = 0;
+	DWORD prevZEnable = 0, prevZWrite = 0, prevAlphaBlend = 0, prevAlphaTest = 0;
+	DWORD prevCull = 0, prevFog = 0, prevStencil = 0, prevColorWrite = 0, prevLighting = 0;
+	DWORD prevMin = 0, prevMag = 0, prevMip = 0, prevAddrU = 0, prevAddrV = 0;
+
+	device->GetPixelShader(&prevShader);
+	device->GetTexture(0, &prevTexture);
+	device->GetVertexDeclaration(&prevDecl);
+	device->GetFVF(&prevFVF);
+	device->GetRenderState(D3DRS_ZENABLE, &prevZEnable);
+	device->GetRenderState(D3DRS_ZWRITEENABLE, &prevZWrite);
+	device->GetRenderState(D3DRS_ALPHABLENDENABLE, &prevAlphaBlend);
+	device->GetRenderState(D3DRS_ALPHATESTENABLE, &prevAlphaTest);
+	device->GetRenderState(D3DRS_CULLMODE, &prevCull);
+	device->GetRenderState(D3DRS_FOGENABLE, &prevFog);
+	device->GetRenderState(D3DRS_STENCILENABLE, &prevStencil);
+	device->GetRenderState(D3DRS_COLORWRITEENABLE, &prevColorWrite);
+	device->GetRenderState(D3DRS_LIGHTING, &prevLighting);
+	device->GetSamplerState(0, D3DSAMP_MINFILTER, &prevMin);
+	device->GetSamplerState(0, D3DSAMP_MAGFILTER, &prevMag);
+	device->GetSamplerState(0, D3DSAMP_MIPFILTER, &prevMip);
+	device->GetSamplerState(0, D3DSAMP_ADDRESSU, &prevAddrU);
+	device->GetSamplerState(0, D3DSAMP_ADDRESSV, &prevAddrV);
+
+	device->SetPixelShader(uiAlphaFixPixelShader);
+	device->SetTexture(0, uiAlphaFixCopyTexture);
+	device->SetFVF(D3DFVF_XYZRHW | D3DFVF_TEX1);
+	device->SetRenderState(D3DRS_ZENABLE, FALSE);
+	device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+	device->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
+	device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+	device->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+	device->SetRenderState(D3DRS_FOGENABLE, FALSE);
+	device->SetRenderState(D3DRS_STENCILENABLE, FALSE);
+	device->SetRenderState(D3DRS_COLORWRITEENABLE, D3DCOLORWRITEENABLE_RED | D3DCOLORWRITEENABLE_GREEN | D3DCOLORWRITEENABLE_BLUE | D3DCOLORWRITEENABLE_ALPHA);
+	device->SetRenderState(D3DRS_LIGHTING, FALSE);
+	device->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_POINT);
+	device->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
+	device->SetSamplerState(0, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+	device->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+	device->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+
+	const float width = static_cast<float>(desc.Width);
+	const float height = static_cast<float>(desc.Height);
+	struct OverlayVertex
+	{
+		float x, y, z, rhw, u, v;
+	};
+	// -0.5 is the D3D9 half-pixel offset so the copy is 1:1, not a blurry resample.
+	const OverlayVertex quad[4] = {
+		{ -0.5f,          -0.5f,           0.0f, 1.0f, 0.0f, 0.0f },
+		{ width - 0.5f,   -0.5f,           0.0f, 1.0f, 1.0f, 0.0f },
+		{ width - 0.5f,   height - 0.5f,   0.0f, 1.0f, 1.0f, 1.0f },
+		{ -0.5f,          height - 0.5f,   0.0f, 1.0f, 0.0f, 1.0f },
+	};
+	device->DrawPrimitiveUP(D3DPT_TRIANGLEFAN, 2, quad, sizeof(OverlayVertex));
+
+	device->SetPixelShader(prevShader);
+	device->SetTexture(0, prevTexture);
+	device->SetFVF(prevFVF);
+	if (prevDecl)
+	{
+		device->SetVertexDeclaration(prevDecl);
+	}
+	device->SetRenderState(D3DRS_ZENABLE, prevZEnable);
+	device->SetRenderState(D3DRS_ZWRITEENABLE, prevZWrite);
+	device->SetRenderState(D3DRS_ALPHABLENDENABLE, prevAlphaBlend);
+	device->SetRenderState(D3DRS_ALPHATESTENABLE, prevAlphaTest);
+	device->SetRenderState(D3DRS_CULLMODE, prevCull);
+	device->SetRenderState(D3DRS_FOGENABLE, prevFog);
+	device->SetRenderState(D3DRS_STENCILENABLE, prevStencil);
+	device->SetRenderState(D3DRS_COLORWRITEENABLE, prevColorWrite);
+	device->SetRenderState(D3DRS_LIGHTING, prevLighting);
+	device->SetSamplerState(0, D3DSAMP_MINFILTER, prevMin);
+	device->SetSamplerState(0, D3DSAMP_MAGFILTER, prevMag);
+	device->SetSamplerState(0, D3DSAMP_MIPFILTER, prevMip);
+	device->SetSamplerState(0, D3DSAMP_ADDRESSU, prevAddrU);
+	device->SetSamplerState(0, D3DSAMP_ADDRESSV, prevAddrV);
+
+	if (prevShader)
+	{
+		prevShader->Release();
+	}
+	if (prevTexture)
+	{
+		prevTexture->Release();
+	}
+	if (prevDecl)
+	{
+		prevDecl->Release();
+	}
+
+	if (prevRT)
+	{
+		device->SetRenderTarget(0, prevRT);
+		prevRT->Release();
+	}
 }
 
 void Game::StoreRenderTargets()

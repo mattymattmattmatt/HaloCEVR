@@ -24,7 +24,6 @@ class Game
 public:
 	// Whether the currently equipped weapon is a one handed weapon (pistol, plasma pistol, plasma rifle or needler)
 	bool IsCurrentWeaponOneHanded() const;
-	// Debug-only, see GRENADE_VELOCITY_DEBUG in WeaponHandler.cpp
 	void UpdateGrenadeVelocityScan();
 
 	// Live in-headset adjustment of HUD element placement, so positioning can be
@@ -32,6 +31,9 @@ public:
 	// weaponHandler itself is protected; this exposes just the current weapon
 	// type, which other systems need for weapon-specific behaviour
 	WeaponType GetCurrentWeaponType() const { return weaponHandler.GetCachedWeaponType(); }
+
+	// 1 just after leaving a vehicle, 0 when the exit camera blend is finished
+	float GetVehicleExitBlendT() const { return vehicleExitBlendT; }
 
 	void UpdateLiveHUDAdjuster();
 	int liveAdjustTarget = 0;
@@ -113,9 +115,7 @@ public:
 	bool bLeftHanded = false;
 	// Set by the HUD toggle gesture, when true the floating UI layer is not drawn
 	bool bHideHUD = false;
-	// TEMP TEST - grenade calibration stopwatch, see Game::UpdateInputs
-	bool bGrenadeCalibrationActive = false;
-	std::chrono::steady_clock::time_point grenadeCalibrationStart;
+
 	// Runtime crosshair visibility, initialised from c_ShowCrosshair, toggled by the ToggleCrosshair binding
 	bool bShowCrosshair = true;
 	bool bUse3DOFAiming = false;
@@ -163,7 +163,25 @@ protected:
 	void StoreRenderTargets();
 	void RestoreRenderTargets();
 
+	// Halo HUD bitmaps are rectangular quads whose unused texels are opaque
+	// black. Vanilla never shows those because it blends the HUD onto the 3D
+	// backbuffer (black adds nothing / texture alpha is used only for colour).
+	// We capture the same draw into an overlay texture and mark it premultiplied,
+	// so dest-alpha 255 + RGB 0 becomes a solid black box. Punch those pixels
+	// to A=0 on the GPU after the HUD draw; menus write afterwards and are left alone.
+	void FixHUDOverlayAlpha();
+	bool EnsureHUDAlphaFixResources(struct IDirect3DDevice9* device, const D3DSURFACE_DESC& desc);
+	void ReleaseHUDAlphaFixResources();
+
 	void CreateTextureAndSurface(UINT Width, UINT Height, DWORD Usage, D3DFORMAT Format, struct IDirect3DSurface9** OutSurface, struct IDirect3DTexture9** OutTexture);
+
+	struct IDirect3DTexture9* uiAlphaFixCopyTexture = nullptr;
+	struct IDirect3DSurface9* uiAlphaFixCopySurface = nullptr;
+	struct IDirect3DPixelShader9* uiAlphaFixPixelShader = nullptr;
+	bool uiAlphaFixShaderFailed = false;
+	UINT uiAlphaFixWidth = 0;
+	UINT uiAlphaFixHeight = 0;
+	D3DFORMAT uiAlphaFixFormat = D3DFMT_UNKNOWN;
 
 	WeaponHandler weaponHandler;
 	InputHandler inputHandler;
