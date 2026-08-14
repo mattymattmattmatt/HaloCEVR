@@ -662,11 +662,6 @@ void Game::DrawGrenadeArc()
 
 	float speed = c_GrenadeArcSpeed->Value();
 	float gravity = c_GrenadeArcGravity->Value();
-	if (weaponHandler.HasLiveGrenadeBallistics())
-	{
-		speed = weaponHandler.GetLiveGrenadeSpeed();
-		gravity = weaponHandler.GetLiveGrenadeGravity();
-	}
 
 	Vector3 velocity = aim * MetresToWorld(speed);
 	const float gravityPerTick = MetresToWorld(gravity) * tick;
@@ -1622,7 +1617,7 @@ void Game::SetupConfigs()
 	c_DisableTwoHandForOneHanded = config.RegisterBool("DisableTwoHandForOneHanded", "Prevent the two hand grip from activating while holding a one handed weapon (pistol, plasma pistol, plasma rifle or needler), which has no real two handed hold", true);
 	c_ThrowGrenadeOnRelease = config.RegisterBool("ThrowGrenadeOnRelease", "Throw the grenade when the grenade button is released, rather than immediately when pressed. Lets you hold the button while winding up the throw motion", false);
 	c_ShowGrenadeArc = config.RegisterBool("ShowGrenadeArc", "Draw a predicted trajectory arc from your throwing hand while the grenade button is held", false);
-	c_GrenadeArcSpeed = config.RegisterFloat("GrenadeArcSpeed", "Fallback grenade launch speed in metres per second for the predicted arc, used until a real throw has been observed this session. After that the arc learns speed and gravity from the live projectile", 26.5f);
+	c_GrenadeArcSpeed = config.RegisterFloat("GrenadeArcSpeed", "Grenade launch speed in metres per second for the predicted arc. Fixed for every throw; short vs long is aim angle only. Measured in-game at about 26.5 m/s", 26.5f);
 	c_GrenadeArcYawOffset = config.RegisterFloat("GrenadeArcYawOffset", "Yaw correction in degrees applied to the grenade arc, compensating for the angle the controller is held at. Automatically mirrored in left handed mode. Tuned for Quest 3 via Virtual Desktop; other controllers may want a different value", -10.0f);
 	c_TwoHandPitchOffsetAssaultRifle = config.RegisterFloat("TwoHandPitchOffsetAssaultRifle", "Pitch correction in degrees applied to two-handed aim for the AssaultRifle, so gripping does not shift aim away from where the weapon was already pointing. Measured value", -7.08f);
 	c_TwoHandYawOffsetAssaultRifle = config.RegisterFloat("TwoHandYawOffsetAssaultRifle", "Yaw correction in degrees applied to two-handed aim for the AssaultRifle, alongside TwoHandPitchOffsetAssaultRifle. Automatically mirrored in left handed mode", 0.27f);
@@ -1634,7 +1629,7 @@ void Game::SetupConfigs()
 	c_TwoHandYawOffsetRocket = config.RegisterFloat("TwoHandYawOffsetRocket", "Yaw correction in degrees applied to two-handed aim for the RocketLauncher, alongside TwoHandPitchOffsetRocket. Automatically mirrored in left handed mode", 13.20f);
 	c_TwoHandRollStabilised = config.RegisterBool("TwoHandRollStabilised", "Applies the two-handed aim corrections about world up rather than the hand's own up axis. The hand frame rolls with your wrist, so a large correction swings as the wrist rolls, making the weapon swirl toward the ground when turning. Changes the frame the offsets are measured in, so recalibrate after enabling", false);
 	c_TwoHandFacingBlend = config.RegisterFloat("TwoHandFacingBlend", "Only affects the rocket launcher (the other two-handed weapons are already corrected well by their fixed offsets alone). Blends its two-handed aim between the straight line to the off hand (0) and the dominant controller's own facing (1). Testing found even a full blend of 1 does not fully stop it swirling when turning with it gripped, so this is unlikely to fully fix it on its own - the remaining cause looks like the weapon's own model/bone data rather than anything in the aim calculation", 0.0f);
-	c_GrenadeArcGravity = config.RegisterFloat("GrenadeArcGravity", "Fallback gravity in metres per second squared for the predicted arc, used until a real throw has been observed this session", 9.8f);
+	c_GrenadeArcGravity = config.RegisterFloat("GrenadeArcGravity", "Gravity in metres per second squared for the predicted arc. Tune alongside GrenadeArcSpeed", 9.8f);
 	c_GrenadeArcSeconds = config.RegisterFloat("GrenadeArcSeconds", "How many seconds of flight the predicted arc covers", 2.5f);
 	c_GrenadeArcSegments = config.RegisterInt("GrenadeArcSegments", "Number of line segments used to draw the predicted arc. Higher is smoother", 40);
 	c_GrenadeArcDashed = config.RegisterBool("GrenadeArcDashed", "Draw the grenade arc as a dashed line, with dashes shrinking towards the far end, rather than a solid line", true);

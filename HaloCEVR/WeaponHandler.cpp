@@ -1208,7 +1208,6 @@ void WeaponHandler::RelocatePlayer(HaloID& PlayerID, bool bUseOffHand)
 				offsetRot.setColumn(i, &aimOffset.get()[i * 4]);
 
 			weaponFiredPlayer->aim = (offsetRot * handRotation3) * Vector3(1.0f, 0.0f, 0.0f);
-			lastGrenadeThrowOrigin = handPos;
 		}
 		else if (Game::instance.bUse3DOFAiming)
 		{
@@ -1371,120 +1370,8 @@ void WeaponHandler::PostThrowGrenade(HaloID& playerID)
 		weaponFiredPlayer->aim = realPlayerAim;
 		weaponFiredPlayer = nullptr;
 	}
-
-	HaloID localPlayerID;
-	if (!Helpers::GetLocalPlayerID(localPlayerID) || localPlayerID != playerID)
-	{
-		return;
-	}
-
-	// Projectile is often not in the table the instant the throw call returns.
-	// Watch for a few frames and learn speed/gravity from the real object.
-	bHaveTrackedGrenade = false;
-	bHaveLastTrackedVelocity = false;
-	liveSpeedSamples = 0.0f;
-	liveSpeedSampleCount = 0;
-	liveGravitySamples = 0.0f;
-	liveGravitySampleCount = 0;
-	grenadeTrackFramesRemaining = 25;
-
-	UnitDynamicObject* player = static_cast<UnitDynamicObject*>(Helpers::GetDynamicObject(playerID));
-	if (player && player->thrownGrenade.id != 0 && player->thrownGrenade.id != 0xffff)
-	{
-		trackedGrenade = player->thrownGrenade;
-		bHaveTrackedGrenade = true;
-	}
 }
 
 void WeaponHandler::UpdateGrenadeVelocityScan()
 {
-	if (grenadeTrackFramesRemaining <= 0)
-	{
-		return;
-	}
-
-	grenadeTrackFramesRemaining--;
-
-	BaseDynamicObject* grenade = nullptr;
-	if (bHaveTrackedGrenade)
-	{
-		grenade = Helpers::GetDynamicObject(trackedGrenade);
-		if (grenade && grenade->N0000027E != ObjectType::PROJECTILE)
-		{
-			grenade = nullptr;
-		}
-	}
-
-	if (!grenade)
-	{
-		ObjectTable& table = Helpers::GetObjectTable();
-		float bestDist = 12.0f;
-		for (uint16_t i = 0; i < table.currentSize; i++)
-		{
-			BaseDynamicObject* obj = table.elements[i].dynamicObject;
-			if (!obj || obj->N0000027E != ObjectType::PROJECTILE)
-			{
-				continue;
-			}
-
-			const float speed = obj->velocity.length();
-			if (speed < 0.5f)
-			{
-				continue;
-			}
-
-			const float dist = (obj->position - lastGrenadeThrowOrigin).length();
-			if (dist < bestDist)
-			{
-				bestDist = dist;
-				grenade = obj;
-				trackedGrenade.index = i;
-				trackedGrenade.id = table.elements[i].id;
-				bHaveTrackedGrenade = true;
-			}
-		}
-	}
-
-	if (!grenade)
-	{
-		return;
-	}
-
-	const float speedWorld = grenade->velocity.length();
-	if (speedWorld < 0.5f)
-	{
-		return;
-	}
-
-	const float dt = Game::instance.lastDeltaTime;
-	if (bHaveLastTrackedVelocity && dt > 1e-4f)
-	{
-		const float dvz = grenade->velocity.z - lastTrackedVelocity.z;
-		// Ignore bounce frames (huge dvz) so we only learn air gravity.
-		if (std::abs(dvz) < 8.0f)
-		{
-			liveGravitySamples += Game::instance.WorldToMetres(-dvz / dt);
-			liveGravitySampleCount++;
-		}
-	}
-
-	liveSpeedSamples += Game::instance.WorldToMetres(speedWorld);
-	liveSpeedSampleCount++;
-	lastTrackedVelocity = grenade->velocity;
-	bHaveLastTrackedVelocity = true;
-
-	if (liveSpeedSampleCount >= 3)
-	{
-		liveGrenadeSpeed = liveSpeedSamples / static_cast<float>(liveSpeedSampleCount);
-		if (liveGravitySampleCount >= 3)
-		{
-			liveGrenadeGravity = liveGravitySamples / static_cast<float>(liveGravitySampleCount);
-			if (liveGrenadeGravity < 1.0f) liveGrenadeGravity = 1.0f;
-			if (liveGrenadeGravity > 30.0f) liveGrenadeGravity = 30.0f;
-		}
-		if (liveGrenadeSpeed > 5.0f && liveGrenadeSpeed < 50.0f)
-		{
-			bHaveLiveGrenadeBallistics = true;
-		}
-	}
 }
