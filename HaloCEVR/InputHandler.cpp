@@ -5,6 +5,7 @@
 #include "Helpers/Menus.h"
 #include "Helpers/Maths.h"
 #include "Logger.h"
+#include <chrono>
 
 #include <windows.h>
 #include <mmsystem.h>
@@ -687,8 +688,11 @@ void InputHandler::UpdateHUDToggle()
 	Vector3 handPos = vr->GetRawControllerTransform(hudHand) * Vector3(0.0f, 0.0f, 0.0f);
 
 	// The hand must leave a larger zone before another toggle can register, otherwise
-	// tracking jitter on the boundary would toggle repeatedly
-	const float releaseDistance = toggleDistance * 1.5f;
+	// tracking jitter on the boundary would toggle repeatedly. 1.5x left only a ~10cm
+	// gap at small distances (e.g. matching the flashlight's 0.2m default), which real
+	// hand tracking jitter could still cross both ways, causing rapid re-triggering -
+	// reported directly, and reproduced by the numbers: 0.2 * 1.5 = 0.3, a 10cm gap.
+	const float releaseDistance = toggleDistance * 2.2f;
 	const float distanceSqr = (togglePos - handPos).lengthSqr();
 
 	if (!bWasTappingHUD)
@@ -840,6 +844,59 @@ bool InputHandler::GetCalculatedHandPositions(Matrix4& controllerTransform, Vect
 		}
 
 		toOffHand.normalize();
+
+		// Blend the pure hand-line direction toward the controller's own facing.
+		// Hand-line alone ignores wrist pitch entirely: as the wrist tilts during
+		// normal movement the aim can swing independently of where the controller
+		// is actually pointing, worst on weapons where the hands sit furthest apart
+		// (confirmed via logging: aim pitch showed near-zero correlation with
+		// controller facing during a spin test on the rocket launcher). Blending in
+		// facing lets wrist pitch contribute while the off hand still steers.
+		const float facingBlend = Game::instance.c_TwoHandFacingBlend->Value();
+		// Scoped to the rocket launcher only. The other three two-handed weapons
+		// are already well corrected by their fixed pitch/yaw offsets alone, so
+		// this should not affect them regardless of what it is set to.
+		if (Game::instance.bUseTwoHandAim && bHasPoseData && facingBlend > 0.0f
+			&& Game::instance.GetCurrentWeaponType() == WeaponType::RocketLauncher)
+		{
+			Vector3 blended = toOffHand * (1.0f - facingBlend) + poseDirection * facingBlend;
+			if (blended.lengthSqr() > 1e-8f)
+			{
+				blended.normalize();
+				toOffHand = blended;
+			}
+		}
+
+#define TWOHAND_SPIN_DEBUG 1
+#if TWOHAND_SPIN_DEBUG
+		// Continuous log while two-hand aiming, throttled, so a spin can be traced.
+		// Captures the raw inputs the aim is built from, not just the result, so we
+		// can tell whether the aim is tracking the hands faithfully (and the hands
+		// are moving) or whether the aim is diverging from them.
+		if (Game::instance.bUseTwoHandAim)
+		{
+			static std::chrono::steady_clock::time_point lastSpinLog;
+			auto nowT = std::chrono::steady_clock::now();
+			if (std::chrono::duration<double>(nowT - lastSpinLog).count() > 0.1)
+			{
+				lastSpinLog = nowT;
+				const float r2d = 57.2957795f;
+				const Vector3 handSep = offHandPos - mainHandPos;
+				Vector3 facing = poseDirection;
+				if (facing.lengthSqr() > 1e-8f) { facing.normalize(); }
+				Logger::log << "[SpinDbg]"
+					<< " aimPitch=" << asin(toOffHand.z) * r2d
+					<< " aimYaw=" << atan2(toOffHand.y, toOffHand.x) * r2d
+					<< " facePitch=" << asin(facing.z) * r2d
+					<< " faceYaw=" << atan2(facing.y, facing.x) * r2d
+					<< " sep=" << handSep.length()
+					<< " main=(" << mainHandPos.x << "," << mainHandPos.y << "," << mainHandPos.z << ")"
+					<< " off=(" << offHandPos.x << "," << offHandPos.y << "," << offHandPos.z << ")"
+					<< std::endl;
+			}
+		}
+#endif
+		if (Game::instance.bUseTwoHandAim)
 		{
 			FloatProperty* pitchProp = nullptr;
 			FloatProperty* yawProp = nullptr;
@@ -876,21 +933,39 @@ bool InputHandler::GetCalculatedHandPositions(Matrix4& controllerTransform, Vect
 					yawAdjust = -yawAdjust;
 				}
 
-				const Vector3 handFwd = aimingTransform.getLeftAxis();
-				const Vector3 handUp = aimingTransform.getUpAxis();
-				const Vector3 handRight = handUp.cross(handFwd);
-
-				const float lx = toOffHand.dot(handFwd);
-				const float ly = toOffHand.dot(handRight);
-				const float lz = toOffHand.dot(handUp);
-
 				const float degToRad = 0.0174532925f;
-				const float pitch = asin(lz) + pitchAdjust * degToRad;
-				const float yaw = atan2(ly, lx) + yawAdjust * degToRad;
 
-				const float cp = cos(pitch);
-				toOffHand = handFwd * (cp * cos(yaw)) + handRight * (cp * sin(yaw)) + handUp * sin(pitch);
-				toOffHand.normalize();
+				if (Game::instance.c_TwoHandRollStabilised->Value())
+				{
+					// World-referenced: pitch is elevation above horizontal, yaw is a compass
+					// heading. Z is up in this space (the SteamVR conversion maps its Y into Z,
+					// and yaw is a rotateZ). Nothing here reads the controller's roll, so the
+					// correction cannot swing as the wrist rolls.
+					const float pitch = asin(toOffHand.z) + pitchAdjust * degToRad;
+					const float yaw = atan2(toOffHand.y, toOffHand.x) + yawAdjust * degToRad;
+					const float cp = cos(pitch);
+					toOffHand = Vector3(cp * cos(yaw), cp * sin(yaw), sin(pitch));
+					toOffHand.normalize();
+				}
+				else
+				{
+					// Original hand-referenced frame: holds regardless of facing, but rolls
+					// with the wrist, so large corrections are unstable.
+					const Vector3 handFwd = aimingTransform.getLeftAxis();
+					const Vector3 handUp = aimingTransform.getUpAxis();
+					const Vector3 handRight = handUp.cross(handFwd);
+
+					const float lx = toOffHand.dot(handFwd);
+					const float ly = toOffHand.dot(handRight);
+					const float lz = toOffHand.dot(handUp);
+
+					const float pitch = asin(lz) + pitchAdjust * degToRad;
+					const float yaw = atan2(ly, lx) + yawAdjust * degToRad;
+
+					const float cp = cos(pitch);
+					toOffHand = handFwd * (cp * cos(yaw)) + handRight * (cp * sin(yaw)) + handUp * sin(pitch);
+					toOffHand.normalize();
+				}
 			}
 		}
 #define TWOHAND_CALIBRATION 1
@@ -919,6 +994,10 @@ bool InputHandler::GetCalculatedHandPositions(Matrix4& controllerTransform, Vect
 				const Vector3 handRight = handUp.cross(handFwd);
 
 				auto toLocal = [&](const Vector3& v) {
+					if (Game::instance.c_TwoHandRollStabilised->Value())
+					{
+						return v; // already world-referenced; Z is up
+					}
 					return Vector3(v.dot(handFwd), v.dot(handRight), v.dot(handUp));
 				};
 				const Vector3 correctLocal = toLocal(correctAim);

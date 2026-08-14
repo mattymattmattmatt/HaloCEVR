@@ -302,6 +302,8 @@ public:
 	FloatProperty* c_TwoHandYawOffsetSniper = nullptr;
 	FloatProperty* c_TwoHandPitchOffsetRocket = nullptr;
 	FloatProperty* c_TwoHandYawOffsetRocket = nullptr;
+	BoolProperty* c_TwoHandRollStabilised = nullptr;
+	FloatProperty* c_TwoHandFacingBlend = nullptr;
 	FloatProperty* c_GrenadeArcGravity = nullptr;
 	FloatProperty* c_GrenadeArcSeconds = nullptr;
 	IntProperty* c_GrenadeArcSegments = nullptr;
