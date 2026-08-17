@@ -45,8 +45,12 @@ ULONG __stdcall IDirect3D9ExWrapper::AddRef(void)
 
 ULONG __stdcall IDirect3D9ExWrapper::Release(void)
 {
-	Game::instance.Shutdown();
-	return Real->Release();
+	const ULONG remaining = Real->Release();
+	if (remaining == 0)
+	{
+		Game::instance.Shutdown();
+	}
+	return remaining;
 }
 
 HRESULT __stdcall IDirect3D9ExWrapper::RegisterSoftwareDevice(void* pInitializeFunction)

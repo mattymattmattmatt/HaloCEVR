@@ -3,6 +3,7 @@
 #include <string>
 #include <unordered_map>
 #include <algorithm>
+#include <exception>
 #include "../Maths/Vectors.h"
 #include "../Logger.h"
 
@@ -13,9 +14,12 @@ public:
 	virtual ~Property() = default;
 
 	std::string& GetDesc() { return description_; };
+	void SetWriteToFile(bool write) { writeToFile_ = write; }
+	bool WriteToFile() const { return writeToFile_; }
 protected:
 	std::string description_;
 	int guid;
+	bool writeToFile_ = true;
 	friend class Config;
 };
 
@@ -121,13 +125,17 @@ public:
 		return a.second->guid < b.second->guid;
 	}
 
-	bool SaveToFile(const std::string& filename) const {
+	bool SaveToFile(const std::string& filename, bool hiddenOnly = false) const {
 		std::ofstream file(filename);
 		std::vector<std::pair<std::string, Property*>> sortedProperties(properties_.begin(), properties_.end());
 		std::sort(sortedProperties.begin(), sortedProperties.end(), [](std::pair<std::string, Property*> a, std::pair<std::string, Property*> b) { return a.second->guid < b.second->guid; });
 		for (const auto& pair : sortedProperties) {
 			const std::string& name = pair.first;
 			Property* prop = pair.second;
+			if (hiddenOnly ? prop->WriteToFile() : !prop->WriteToFile())
+			{
+				continue;
+			}
 			if (BoolProperty* boolProp = dynamic_cast<BoolProperty*>(prop)) {
 				file << "//[Bool] " << boolProp->GetDesc() << " (Default Value: " << (boolProp->DefaultValue() ? "true" : "false") << ")\n";
 				file << name << " = " << (boolProp->Value() ? "true" : "false") << "\n\n";
@@ -208,13 +216,27 @@ public:
 			}
 			else if (dynamic_cast<IntProperty*>(prop)) {
 				IntProperty* iProp = static_cast<IntProperty*>(prop);
-				iProp->value_ = std::stoi(value);
-				Logger::log << "[Config] " << name << " = " << iProp->Value() << ((iProp->Value() != iProp->DefaultValue()) ? "*" : "") << std::endl;
+				try
+				{
+					iProp->value_ = std::stoi(value);
+					Logger::log << "[Config] " << name << " = " << iProp->Value() << ((iProp->Value() != iProp->DefaultValue()) ? "*" : "") << std::endl;
+				}
+				catch (const std::exception&)
+				{
+					Logger::log << "[Config] Invalid int for " << name << " ('" << value << "'), keeping " << iProp->Value() << std::endl;
+				}
 			}
 			else if (dynamic_cast<FloatProperty*>(prop)) {
 				FloatProperty* fProp = static_cast<FloatProperty*>(prop);
-				fProp->value_ = std::stof(value);
-				Logger::log << "[Config] " << name << " = " << fProp->Value() << ((std::abs(fProp->Value() - fProp->DefaultValue()) > 1e-8) ? "*" : "") << std::endl;
+				try
+				{
+					fProp->value_ = std::stof(value);
+					Logger::log << "[Config] " << name << " = " << fProp->Value() << ((std::abs(fProp->Value() - fProp->DefaultValue()) > 1e-8) ? "*" : "") << std::endl;
+				}
+				catch (const std::exception&)
+				{
+					Logger::log << "[Config] Invalid float for " << name << " ('" << value << "'), keeping " << fProp->Value() << std::endl;
+				}
 			}
 			else if (dynamic_cast<StringProperty*>(prop)) {
 				StringProperty* sProp = static_cast<StringProperty*>(prop);
@@ -223,34 +245,41 @@ public:
 			}
 			else if (dynamic_cast<Vector3Property*>(prop)) {
 				Vector3Property* vProp = static_cast<Vector3Property*>(prop);
-				// Find X
-				value.erase(value.begin(), std::find_if(value.begin(), value.end(), [](char ch) {
-					return !std::isspace(ch) && ch != '(';
-				}));
+				try
+				{
+					// Find X
+					value.erase(value.begin(), std::find_if(value.begin(), value.end(), [](char ch) {
+						return !std::isspace(ch) && ch != '(';
+					}));
 
-				std::size_t len;
-				float x = std::stof(value, &len);
+					std::size_t len;
+					float x = std::stof(value, &len);
 
-				value.erase(value.begin(), value.begin() + len);
+					value.erase(value.begin(), value.begin() + len);
 
-				// Find Y
-				value.erase(value.begin(), std::find_if(value.begin(), value.end(), [](char ch) {
-					return !std::isspace(ch) && ch != ',';
-				}));
+					// Find Y
+					value.erase(value.begin(), std::find_if(value.begin(), value.end(), [](char ch) {
+						return !std::isspace(ch) && ch != ',';
+					}));
 
-				float y = std::stof(value, &len);
+					float y = std::stof(value, &len);
 
-				value.erase(value.begin(), value.begin() + len);
+					value.erase(value.begin(), value.begin() + len);
 
-				// Find Z
-				value.erase(value.begin(), std::find_if(value.begin(), value.end(), [](char ch) {
-					return !std::isspace(ch) && ch != ',';
-				}));
+					// Find Z
+					value.erase(value.begin(), std::find_if(value.begin(), value.end(), [](char ch) {
+						return !std::isspace(ch) && ch != ',';
+					}));
 
-				float z = std::stof(value);
+					float z = std::stof(value);
 
-				vProp->value_ = Vector3(x, y, z);
-				Logger::log << "[Config] " << name << " = " << vProp->Value() << ((vProp->Value() != vProp->DefaultValue()) ? "*" : "") << std::endl;
+					vProp->value_ = Vector3(x, y, z);
+					Logger::log << "[Config] " << name << " = " << vProp->Value() << ((vProp->Value() != vProp->DefaultValue()) ? "*" : "") << std::endl;
+				}
+				catch (const std::exception&)
+				{
+					Logger::log << "[Config] Invalid Vector3 for " << name << ", keeping " << vProp->Value() << std::endl;
+				}
 			}
 		}
 
@@ -265,6 +294,10 @@ public:
 		std::sort(sortedProperties.begin(), sortedProperties.end(), [](std::pair<std::string, Property*> a, std::pair<std::string, Property*> b) { return a.second->guid < b.second->guid; });
 		for (const auto& pair : sortedProperties)
 		{
+			if (!pair.second->WriteToFile())
+			{
+				continue;
+			}
 			outKeys.push_back(pair.first);
 		}
 

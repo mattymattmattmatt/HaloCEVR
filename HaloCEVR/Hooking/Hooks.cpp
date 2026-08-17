@@ -56,6 +56,7 @@ void Hooks::InitHooks()
 	CREATEHOOK(UpdateMouseInfo);
 	CREATEHOOK(FireWeapon);
 	CREATEHOOK(ThrowGrenade);
+	CREATEHOOK(MeleeDamage);
 	CREATEHOOK(DrawLoadingScreen2);
 	CREATEHOOK(DrawCinematicBars);
 	CREATEHOOK(DrawViewModel);
@@ -107,6 +108,7 @@ void Hooks::EnableAllHooks()
 	UpdateMouseInfo.EnableHook();
 	FireWeapon.EnableHook();
 	ThrowGrenade.EnableHook();
+	MeleeDamage.EnableHook();
 	DrawLoadingScreen2.EnableHook();
 	DrawCinematicBars.EnableHook();
 	DrawViewModel.EnableHook();
@@ -816,6 +818,17 @@ void Hooks::H_ThrowGrenade(HaloID param1, bool param2)
 	ThrowGrenade.Original(param1, param2);
 
 	Game::instance.PostThrowGrenade(param1);
+}
+
+void Hooks::H_MeleeDamage(HaloID param1)
+{
+	VR_PROFILE_SCOPE(Hooks_MeleeDamage);
+
+	Game::instance.PreMeleeDamage(param1);
+
+	MeleeDamage.Original(param1);
+
+	Game::instance.PostMeleeDamage(param1);
 }
 
 void Hooks::H_DrawLoadingScreen2(void* param1)

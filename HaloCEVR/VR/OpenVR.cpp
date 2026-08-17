@@ -627,7 +627,7 @@ void OpenVR::UpdateWristHUD()
 	vr::TrackedDeviceIndex_t handIndex = vrSystem->GetTrackedDeviceIndexForControllerRole(
 		offHand == ControllerRole::Left ? vr::TrackedControllerRole_LeftHand : vr::TrackedControllerRole_RightHand);
 
-#define WRIST_HUD_DEBUG 1
+#define WRIST_HUD_DEBUG 0
 #if WRIST_HUD_DEBUG
 	static std::chrono::steady_clock::time_point lastWristLogTime;
 	bool bShouldLogNow = std::chrono::duration<double>(std::chrono::steady_clock::now() - lastWristLogTime).count() > 0.5;

@@ -76,6 +76,8 @@ public:
 	void PostFireWeapon(HaloID& WeaponID, short param2);
 	void PreThrowGrenade(HaloID& playerID);
 	void PostThrowGrenade(HaloID& playerID);
+	void PreMeleeDamage(HaloID& unitID);
+	void PostMeleeDamage(HaloID& unitID);
 	bool GetCalculatedHandPositions(Matrix4& controllerTransform, Vector3& dominantHandPos, Vector3& offHand); 
 	void ReloadStart(HaloID param1, short param2, bool param3);
 	void ReloadEnd(short param1, HaloID param2);
@@ -330,6 +332,7 @@ public:
 	FloatProperty* c_VehicleFaceAimSmoothing = nullptr;
 	FloatProperty* c_VehicleFaceAimSpeed = nullptr;
 	BoolProperty* c_StabiliseCutsceneCamera = nullptr;
+	BoolProperty* c_CutsceneStickTurn = nullptr;
 	FloatProperty* c_VehicleExitBlendDuration = nullptr;
 	FloatProperty* c_VehicleExitBlendRate = nullptr;
 	BoolProperty* c_OffhandHandFlashlight = nullptr;
@@ -356,6 +359,7 @@ public:
 	Vector3Property* c_ScopeOffsetRocket = nullptr;
 	FloatProperty* c_LeftHandMeleeSwingSpeed = nullptr;
 	FloatProperty* c_RightHandMeleeSwingSpeed = nullptr;
+	BoolProperty* c_MeleeFromHand = nullptr;
 	FloatProperty* c_CrouchHeight = nullptr;
 	BoolProperty* c_ShowRoomCentre = nullptr;
 	BoolProperty* c_ToggleGrip = nullptr;

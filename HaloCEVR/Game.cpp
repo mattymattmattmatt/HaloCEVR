@@ -768,8 +768,13 @@ bool Game::PreDrawHUD()
 	realZoom = *zoom;
 	*zoom = -1;
 
-	Helpers::GetDirect3DDevice9()->GetRenderTarget(0, &uiRealSurface);
+	IDirect3DSurface9* prevTarget = nullptr;
+	Helpers::GetDirect3DDevice9()->GetRenderTarget(0, &prevTarget);
 	Helpers::GetDirect3DDevice9()->SetRenderTarget(0, uiSurface);
+	if (prevTarget)
+	{
+		prevTarget->Release();
+	}
 	uiRealSurface = Helpers::GetRenderTargets()[1].renderSurface;
 	Helpers::GetRenderTargets()[1].renderSurface = uiSurface;
 	realUIWidth = Helpers::GetRenderTargets()[1].width;
@@ -832,8 +837,13 @@ bool Game::PreDrawMenu()
 		return GetRenderState() == ERenderState::GAME;
 	}
 
-	Helpers::GetDirect3DDevice9()->GetRenderTarget(0, &uiRealSurface);
+	IDirect3DSurface9* prevTarget = nullptr;
+	Helpers::GetDirect3DDevice9()->GetRenderTarget(0, &prevTarget);
 	Helpers::GetDirect3DDevice9()->SetRenderTarget(0, uiSurface);
+	if (prevTarget)
+	{
+		prevTarget->Release();
+	}
 	uiRealSurface = Helpers::GetRenderTargets()[1].renderSurface;
 	Helpers::GetRenderTargets()[1].renderSurface = uiSurface;
 
@@ -1259,13 +1269,15 @@ void Game::UpdateLiveHUDAdjuster()
 
 	if (keyJustPressed(VK_F11, bF11))
 	{
-		if (config.SaveToFile("VR/config.txt"))
+		const bool savedMain = config.SaveToFile("VR/config.txt");
+		const bool savedLayout = config.SaveToFile("VR/wrist_hud.txt", true);
+		if (savedMain && savedLayout)
 		{
-			Logger::log << "[HUDAdjust] Saved current values to VR/config.txt" << std::endl;
+			Logger::log << "[HUDAdjust] Saved layout to VR/wrist_hud.txt" << std::endl;
 		}
 		else
 		{
-			Logger::err << "[HUDAdjust] FAILED to save VR/config.txt" << std::endl;
+			Logger::err << "[HUDAdjust] FAILED to save wrist HUD layout" << std::endl;
 		}
 	}
 }
@@ -1411,6 +1423,18 @@ Vector3 Game::GetSmoothedInput() const
 	return inputHandler.smoothedPosition;
 }
 
+void Game::PreMeleeDamage(HaloID& unitID)
+{
+	VR_PROFILE_SCOPE(Game_PreMeleeDamage);
+	inputHandler.PreMeleeDamage(unitID);
+}
+
+void Game::PostMeleeDamage(HaloID& unitID)
+{
+	VR_PROFILE_SCOPE(Game_PostMeleeDamage);
+	inputHandler.PostMeleeDamage(unitID);
+}
+
 void Game::UpdateCamera(float& yaw, float& pitch)
 {
 	VR_PROFILE_SCOPE(Game_UpdateCamera);
@@ -1420,15 +1444,29 @@ void Game::UpdateCamera(float& yaw, float& pitch)
 #endif
 
 	// During a cutscene the cinematic script is driving the game camera. Injecting
-	// our own corrections towards the headset fights that scripted motion, which
-	// shows up as the view oscillating back and forth. Leave the camera to the
-	// script; the headset still controls where the player looks within the view.
-	if (c_StabiliseCutsceneCamera && c_StabiliseCutsceneCamera->Value()
-		&& Helpers::GetCutsceneData()->bInCutscene)
+	// HMD residuals towards the headset fights that scripted motion (world spin,
+	// worse with Chimera). Stick turn only changes yawOffset, which rotates the
+	// VR view around the cinematic camera and does not touch the engine camera.
+	const bool bInCutscene = Helpers::GetCutsceneData() && Helpers::GetCutsceneData()->bInCutscene;
+	if (bInCutscene)
 	{
-		yaw = 0.0f;
-		pitch = 0.0f;
-		return;
+		if (c_CutsceneStickTurn && c_CutsceneStickTurn->Value())
+		{
+			inputHandler.ApplyStickTurn();
+			// Always skip residual injection when stick-turning in a cutscene.
+			// Falling through to UpdateCamera would apply stick a second time
+			// and write HMD residuals into Halo's cinematic camera (world spin).
+			yaw = 0.0f;
+			pitch = 0.0f;
+			return;
+		}
+
+		if (!c_StabiliseCutsceneCamera || c_StabiliseCutsceneCamera->Value())
+		{
+			yaw = 0.0f;
+			pitch = 0.0f;
+			return;
+		}
 	}
 
 	if (bInVehicle && !bHasWeapon)
@@ -1589,7 +1627,7 @@ void Game::SetupConfigs()
 	c_WristHUDRotation = config.RegisterVector3("WristHUDRotation", "Rotation in degrees (X, Y, Z, same convention as ControllerRotation) applied to the wrist HUD so it faces you correctly. Needs tuning per controller", Vector3(39.0f, 4.0f, 0.0f));
 	c_WristHUDElementSpacing = config.RegisterFloat("WristHUDElementSpacing", "Vertical gap in metres between the three stacked wrist HUD elements", 0.0f);
 	c_WristHUDRadarScale = config.RegisterFloat("WristHUDRadarScale", "Width in metres of just the radar element. The radar crop is closer to square than ammo/health, so at the same width it renders much taller and can overlap health - kept separate so it can be sized down independently", 0.16f);
-	c_EnableLiveHUDAdjuster = config.RegisterBool("EnableLiveHUDAdjuster", "Enables keyboard hotkeys for tuning wrist HUD placement live in the headset instead of editing config and relaunching. F1 cycles Radar/Ammo/Health/Group, F2/F3 left/right, F4/F6 up/down, PageUp/PageDown depth, F7/F8 roll, Numpad 8/2/4/6 tilt, F9/F10 scale, F11 save to config, F12 log current values, Insert cycles step size", false);
+	c_EnableLiveHUDAdjuster = config.RegisterBool("EnableLiveHUDAdjuster", "Enables keyboard hotkeys for tuning wrist HUD placement live in the headset. F1 cycles Radar/Ammo/Health/Group, F2/F3 left/right, F4/F6 up/down, PageUp/PageDown depth, F7/F8 roll, Numpad 8/2/4/6 tilt, F9/F10 scale, F11 save layout, F12 log current values, Insert cycles step size", false);
 	c_ForceWindowFocus = config.RegisterBool("ForceWindowFocus", "Repeatedly try to bring the game window to the foreground for the first couple of seconds after launch. Fixes launching via Steam/Virtual Desktop sometimes leaving the game unfocused, with no sound and no input, until manually clicked in the taskbar", false);
 	c_HUDFollowsHeadPitch = config.RegisterBool("HUDFollowsHeadPitch", "When true the floating HUD follows the headset's full rotation including pitch and roll, rather than staying level and following yaw only. Off by default, which is the stock behaviour", false);
 	c_WristHUDAmmoOffset = config.RegisterVector3("WristHUDAmmoOffset", "Fine (forward, left, up) position of just the ammo element, on top of the shared WristHUDOffset", Vector3(-0.0233144f, 0.0f, 0.0388796f));
@@ -1614,6 +1652,25 @@ void Game::SetupConfigs()
 	c_WristHUDRadarVMin = config.RegisterFloat("WristHUDRadarVMin", "Top edge (0-1) of the radar crop from the wrist HUD texture", 0.65f);
 	c_WristHUDRadarUMax = config.RegisterFloat("WristHUDRadarUMax", "Right edge (0-1) of the radar crop from the wrist HUD texture", 0.28f);
 	c_WristHUDRadarVMax = config.RegisterFloat("WristHUDRadarVMax", "Bottom edge (0-1) of the radar crop from the wrist HUD texture", 1.0f);
+	// Layout is tuned with EnableLiveHUDAdjuster and persisted to VR/wrist_hud.txt,
+	// so these stay out of config.txt. ShowWristHUD and EnableLiveHUDAdjuster remain.
+	Property* hiddenWristHUD[] = {
+		c_WristHUDAmmoScale, c_WristHUDHealthScale, c_WristHUDRadarScale,
+		c_WristHUDAmmoHeightStretch, c_WristHUDHealthHeightStretch, c_WristHUDRadarHeightStretch,
+		c_WristHUDOffset, c_WristHUDRotation, c_WristHUDElementSpacing,
+		c_WristHUDAmmoOffset, c_WristHUDHealthOffset, c_WristHUDRadarOffset,
+		c_WristHUDAmmoRotation, c_WristHUDHealthRotation, c_WristHUDRadarRotation,
+		c_WristHUDAmmoUMin, c_WristHUDAmmoVMin, c_WristHUDAmmoUMax, c_WristHUDAmmoVMax,
+		c_WristHUDHealthUMin, c_WristHUDHealthVMin, c_WristHUDHealthUMax, c_WristHUDHealthVMax,
+		c_WristHUDRadarUMin, c_WristHUDRadarVMin, c_WristHUDRadarUMax, c_WristHUDRadarVMax,
+	};
+	for (Property* prop : hiddenWristHUD)
+	{
+		if (prop)
+		{
+			prop->SetWriteToFile(false);
+		}
+	}
 	c_DisableTwoHandForOneHanded = config.RegisterBool("DisableTwoHandForOneHanded", "Prevent the two hand grip from activating while holding a one handed weapon (pistol, plasma pistol, plasma rifle or needler), which has no real two handed hold", true);
 	c_ThrowGrenadeOnRelease = config.RegisterBool("ThrowGrenadeOnRelease", "Throw the grenade when the grenade button is released, rather than immediately when pressed. Lets you hold the button while winding up the throw motion", false);
 	c_ShowGrenadeArc = config.RegisterBool("ShowGrenadeArc", "Draw a predicted trajectory arc from your throwing hand while the grenade button is held", false);
@@ -1639,6 +1696,7 @@ void Game::SetupConfigs()
 	c_VehicleExitBlendDuration = config.RegisterFloat("VehicleExitBlendDuration", "How long in seconds the 3rd-to-1st person exit camera is blended after leaving a vehicle. Too short and the view slams when Halo's own exit camera is still moving", 0.75f);
 	c_VehicleExitBlendRate = config.RegisterFloat("VehicleExitBlendRate", "How quickly yawOffset absorbs the leftover HMD-vs-game residual during a vehicle exit. Higher catches up faster", 6.0f);
 	c_StabiliseCutsceneCamera = config.RegisterBool("StabiliseCutsceneCamera", "Stop injecting VR camera corrections during cutscenes. The cinematic script drives the camera, so correcting towards the headset fights it and can cause the view to oscillate", false);
+	c_CutsceneStickTurn = config.RegisterBool("CutsceneStickTurn", "Allow snap/smooth stick turning during cutscenes. Only rotates the VR view (yawOffset) around the cinematic camera. Does not inject into Halo's camera, which is what spun the world and fought Chimera in the original mod", false);
 	c_ToggleGrip = config.RegisterBool("ToggleGrip", "When true releasing two handed weapons requires pressing the grip action again", false);
 	c_TwoHandDistance = config.RegisterFloat("TwoHandDistance", "How close your off hand must be to your weapon hand for gripping to enable two handed aiming. Higher = works with hands further apart, lower = they must be closer together. <0 allows any distance", 0.8f);
 	c_SwapHandDistance = config.RegisterFloat("SwapHandDistance", "How close your hands must be together for the swap-hand grip action to swap your weapon to the other hand. Higher = works with hands further apart, lower = they must be closer together. <0 to disable", 0.2f);
@@ -1650,6 +1708,7 @@ void Game::SetupConfigs()
 	c_HUDToggleSound = config.RegisterString("HUDToggleSound", "Filename of a 16-bit PCM .wav inside the VR folder to play when the HUD is toggled (blank to disable)", "");
 	c_LeftHandMeleeSwingSpeed = config.RegisterFloat("LeftHandMeleeSwingSpeed", "Minimum vertical velocity of left hand required to initiate a melee attack in m/s (<0 to disable)", 2.5f);
 	c_RightHandMeleeSwingSpeed = config.RegisterFloat("RightHandMeleeSwingSpeed", "Minimum vertical velocity of right hand required to initiate a melee attack in m/s (<0 to disable)", 2.5f);
+	c_MeleeFromHand = config.RegisterBool("MeleeFromHand", "Aim melee attacks from the swinging hand (or the weapon hand for the melee button) instead of the headset. Off = original head-aimed melee", true);
 	c_CrouchHeight = config.RegisterFloat("CrouchHeight", "Minimum height to duck by in metres to automatically trigger the crouch input in game (<0 to disable)", 0.15f);
 	// Hand settings
 	c_ControllerOffset = config.RegisterVector3("ControllerOffset", "Offset from the controller's position used when calculating the in game hand position", Vector3(0.0f, 0.0f, 0.0f));
@@ -1686,6 +1745,7 @@ void Game::SetupConfigs()
 	c_TEMPViewportBottom = config.RegisterFloat("TEMP_ViewportBottom", "Some headsets experience warping when turning, as a workaround the viewport scaling has been exposed so users can adjust them until the warping stops", 1.0f);
 
 	bLoadedConfig = config.LoadFromFile("VR/config.txt");
+	config.LoadFromFile("VR/wrist_hud.txt");
 	bSavedConfig = config.SaveToFile("VR/config.txt");
 
 	if (!bLoadedConfig)
@@ -1726,9 +1786,6 @@ void Game::SetupConfigs()
 		mirrorSource = ERenderState::LEFT_EYE;
 	}
 
-	WeaponHapticsConfigManager weaponHapticsConfig;
-
-	//Logger::log << "[Config] Loaded configs" << std::endl;
 }
 
 void Game::CalcFPS(float deltaTime)

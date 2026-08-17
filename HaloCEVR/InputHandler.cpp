@@ -2,7 +2,10 @@
 #include "Game.h"
 #include "Helpers/Controls.h"
 #include "Helpers/Camera.h"
+#include "Helpers/Objects.h"
+#include "Helpers/Player.h"
 #include "Helpers/Menus.h"
+#include "Helpers/Cutscene.h"
 #include "Helpers/Maths.h"
 #include "Logger.h"
 #include <chrono>
@@ -312,6 +315,16 @@ void InputHandler::UpdateInputs(bool bInVehicle)
 		}
 	}
 
+	if (meleeAimOverrideTimer > 0.0f)
+	{
+		meleeAimOverrideTimer -= Game::instance.lastDeltaTime;
+		if (meleeAimOverrideTimer <= 0.0f)
+		{
+			meleeAimOverrideTimer = 0.0f;
+			bHasMeleeLockedDir = false;
+		}
+	}
+
 	unsigned char MotionControlMelee = UpdateMelee();
 	if (MotionControlMelee > 0)
 	{
@@ -453,7 +466,7 @@ void InputHandler::UpdateInputs(bool bInVehicle)
 	}
 }
 
-void InputHandler::UpdateCamera(float& yaw, float& pitch)
+void InputHandler::ApplyStickTurn()
 {
 	IVR* vr = Game::instance.GetVR();
 
@@ -497,6 +510,13 @@ void InputHandler::UpdateCamera(float& yaw, float& pitch)
 	}
 
 	vr->SetYawOffset(yawOffset);
+}
+
+void InputHandler::UpdateCamera(float& yaw, float& pitch)
+{
+	IVR* vr = Game::instance.GetVR();
+
+	ApplyStickTurn();
 
 	Vector3 lookHMD = vr->GetHMDTransform().getLeftAxis();
 	// Get current camera angle
@@ -641,7 +661,7 @@ unsigned char InputHandler::UpdateFlashlight()
 
 	bool offhandFlashlightEnabled = Game::instance.c_OffhandHandFlashlight->Value();
 
-	bool checkLeftHand = !offhandFlashlightEnabled || !Game::instance.bLeftHanded; 
+	bool checkLeftHand = !offhandFlashlightEnabled || !Game::instance.bLeftHanded;
 	if (checkLeftHand && leftDistance > 0.0f)
 	{
 		Vector3 handPos = vr->GetRawControllerTransform(ControllerRole::Left) * Vector3(0.0f, 0.0f, 0.0f);
@@ -652,7 +672,7 @@ unsigned char InputHandler::UpdateFlashlight()
 		}
 	}
 
-	bool checkRightHand = !offhandFlashlightEnabled || Game::instance.bLeftHanded; 
+	bool checkRightHand = !offhandFlashlightEnabled || Game::instance.bLeftHanded;
 	if (checkRightHand && rightDistance > 0.0f)
 	{
 		Vector3 handPos = vr->GetRawControllerTransform(ControllerRole::Right) * Vector3(0.0f, 0.0f, 0.0f);
@@ -794,26 +814,307 @@ bool InputHandler::IsHandInHolster(const Vector3& handPos, const Vector3& holste
 unsigned char InputHandler::UpdateMelee()
 {
 	IVR* vr = Game::instance.GetVR();
-
-	Vector3 handVel = vr->GetControllerVelocity(ControllerRole::Left);
-
-	handVel *= Game::instance.WorldToMetres(1.0f);
-
-	if (Game::instance.c_LeftHandMeleeSwingSpeed->Value() > 0.0f && abs(handVel.z) > Game::instance.c_LeftHandMeleeSwingSpeed->Value())
+	if (!vr)
 	{
+		return 0;
+	}
+
+	const float leftThreshold = Game::instance.c_LeftHandMeleeSwingSpeed->Value();
+	const float rightThreshold = Game::instance.c_RightHandMeleeSwingSpeed->Value();
+
+	Vector3 leftVel = vr->GetControllerVelocity(ControllerRole::Left) * Game::instance.WorldToMetres(1.0f);
+	Vector3 rightVel = vr->GetControllerVelocity(ControllerRole::Right) * Game::instance.WorldToMetres(1.0f);
+
+	const bool bLeftSwing = leftThreshold > 0.0f && abs(leftVel.z) > leftThreshold;
+	const bool bRightSwing = rightThreshold > 0.0f && abs(rightVel.z) > rightThreshold;
+
+	if (bLeftSwing || bRightSwing)
+	{
+		// Both hands swinging: use the faster vertical swing so a wild
+		// off-hand flick does not steal a stronger punch.
+		if (bLeftSwing && bRightSwing)
+		{
+			BeginMeleeAimOverride(abs(leftVel.z) >= abs(rightVel.z) ? ControllerRole::Left : ControllerRole::Right);
+		}
+		else
+		{
+			BeginMeleeAimOverride(bLeftSwing ? ControllerRole::Left : ControllerRole::Right);
+		}
 		return 127;
 	}
 
-	handVel = vr->GetControllerVelocity(ControllerRole::Right);
-
-	handVel *= Game::instance.WorldToMetres(1.0f);
-
-	if (Game::instance.c_RightHandMeleeSwingSpeed->Value() > 0.0f && abs(handVel.z) > Game::instance.c_RightHandMeleeSwingSpeed->Value())
+	// Button melee (SteamVR binding, unset by default): still aim from the
+	// weapon hand rather than the headset.
+	const bool bMeleeButton = vr->GetBoolInput(Melee);
+	if (bMeleeButton && !bWasMeleeButton)
 	{
-		return 127;
+		BeginMeleeAimOverride(Game::instance.bLeftHanded ? ControllerRole::Left : ControllerRole::Right);
+	}
+	bWasMeleeButton = bMeleeButton;
+
+	return 0;
+}
+
+void InputHandler::BeginMeleeAimOverride(ControllerRole hand)
+{
+	if (Game::instance.c_MeleeFromHand && !Game::instance.c_MeleeFromHand->Value())
+	{
+		return;
 	}
 
-    return 0;
+	meleeAimHand = hand;
+	// CE melee damage lands a few ticks into the animation. Keep the
+	// hand-aim override up long enough to cover that window.
+	meleeAimOverrideTimer = 0.7f;
+	bHasMeleeLockedDir = ComputeMeleeAimDirection(hand, meleeLockedDir);
+}
+
+bool InputHandler::IsMeleeAimOverrideActive() const
+{
+	if (meleeAimOverrideTimer <= 0.0f)
+	{
+		return false;
+	}
+	if (Game::instance.c_MeleeFromHand && !Game::instance.c_MeleeFromHand->Value())
+	{
+		return false;
+	}
+	return true;
+}
+
+Vector3 InputHandler::GetHandWorldPosition(ControllerRole hand) const
+{
+	IVR* vr = Game::instance.GetVR();
+	const Vector3 hmd = vr->GetHMDTransform(true) * Vector3(0.0f, 0.0f, 0.0f);
+	const Vector3 handPos = vr->GetControllerTransform(hand, true) * Vector3(0.0f, 0.0f, 0.0f);
+	return Helpers::GetCamera().position + (handPos - hmd) * Game::instance.MetresToWorld(1.0f);
+}
+
+bool InputHandler::FindMeleeTarget(const Vector3& origin, const Vector3& handWorld, Vector3& outDir) const
+{
+	HaloID localID;
+	if (!Helpers::GetLocalPlayerID(localID))
+	{
+		return false;
+	}
+
+	ObjectTable& table = Helpers::GetObjectTable();
+	const float handRadius = Game::instance.MetresToWorld(1.8f);
+	const float playerRadius = Game::instance.MetresToWorld(2.6f);
+	const float handRadiusSqr = handRadius * handRadius;
+	const float playerRadiusSqr = playerRadius * playerRadius;
+
+	Vector3 towardHand = handWorld - origin;
+	towardHand.z = 0.0f;
+	const bool bHasHandSide = towardHand.lengthSqr() > 1e-6f;
+	if (bHasHandSide)
+	{
+		towardHand.normalize();
+	}
+
+	float bestHandDistSqr = handRadiusSqr;
+	float bestPlayerDistSqr = playerRadiusSqr;
+	const BaseDynamicObject* bestNearHand = nullptr;
+	const BaseDynamicObject* bestNearPlayer = nullptr;
+
+	const uint16_t count = table.currentSize;
+	for (uint16_t i = 0; i < count; ++i)
+	{
+		BaseDynamicObject* obj = table.elements[i].dynamicObject;
+		if (!obj)
+		{
+			continue;
+		}
+		if (obj->N0000027E != ObjectType::BIPED && obj->N0000027E != ObjectType::VEHICLE)
+		{
+			continue;
+		}
+		if (i == localID.index)
+		{
+			continue;
+		}
+		if (obj->health <= 0.0f && obj->shield <= 0.0f)
+		{
+			continue;
+		}
+
+		Vector3 pos = obj->centre;
+		if (pos.lengthSqr() < 1e-8f)
+		{
+			pos = obj->position;
+		}
+
+		const float distHandSqr = (pos - handWorld).lengthSqr();
+		if (distHandSqr < bestHandDistSqr)
+		{
+			bestHandDistSqr = distHandSqr;
+			bestNearHand = obj;
+		}
+
+		const float distPlayerSqr = (pos - origin).lengthSqr();
+		if (distPlayerSqr < bestPlayerDistSqr)
+		{
+			if (bHasHandSide)
+			{
+				Vector3 toObj = pos - origin;
+				toObj.z = 0.0f;
+				if (toObj.lengthSqr() > 1e-8f)
+				{
+					toObj.normalize();
+					if (toObj.dot(towardHand) < 0.15f)
+					{
+						continue;
+					}
+				}
+			}
+			bestPlayerDistSqr = distPlayerSqr;
+			bestNearPlayer = obj;
+		}
+	}
+
+	const BaseDynamicObject* target = bestNearHand ? bestNearHand : bestNearPlayer;
+	if (!target)
+	{
+		return false;
+	}
+
+	Vector3 pos = target->centre;
+	if (pos.lengthSqr() < 1e-8f)
+	{
+		pos = target->position;
+	}
+	outDir = pos - origin;
+	if (outDir.lengthSqr() < 1e-8f)
+	{
+		return false;
+	}
+	outDir.normalize();
+	return true;
+}
+
+bool InputHandler::ComputeMeleeAimDirection(ControllerRole hand, Vector3& outDir) const
+{
+	UnitDynamicObject* player = static_cast<UnitDynamicObject*>(Helpers::GetLocalPlayer());
+	if (!player)
+	{
+		return false;
+	}
+
+	const Vector3 origin = player->centre.lengthSqr() > 1e-8f ? player->centre : player->position;
+	const Vector3 handWorld = GetHandWorldPosition(hand);
+
+	if (FindMeleeTarget(origin, handWorld, outDir))
+	{
+		return true;
+	}
+
+	// No one near the fist: aim the cone toward where the hand actually is
+	// (a downward bash still points sideways if the hand is to your side).
+	Vector3 toHand = handWorld - origin;
+	toHand.z = 0.0f;
+	if (toHand.lengthSqr() > 1e-6f)
+	{
+		toHand.normalize();
+		outDir = toHand;
+		return true;
+	}
+
+	IVR* vr = Game::instance.GetVR();
+	if (vr && vr->TryGetControllerFacing(hand, outDir) && outDir.lengthSqr() > 1e-6f)
+	{
+		outDir.normalize();
+		return true;
+	}
+
+	if (vr)
+	{
+		outDir = vr->GetControllerTransform(hand, true).getLeftAxis();
+		if (outDir.lengthSqr() > 1e-6f)
+		{
+			outDir.normalize();
+			return true;
+		}
+	}
+
+	return false;
+}
+
+void InputHandler::PreMeleeDamage(HaloID& unitID)
+{
+	bMeleeDamageOverridden = false;
+
+	if (!IsMeleeAimOverrideActive())
+	{
+		return;
+	}
+
+	HaloID localID;
+	if (!Helpers::GetLocalPlayerID(localID) || localID.index != unitID.index)
+	{
+		return;
+	}
+
+	UnitDynamicObject* player = static_cast<UnitDynamicObject*>(Helpers::GetDynamicObject(unitID));
+	if (!player)
+	{
+		return;
+	}
+
+	Vector3 dir;
+	if (ComputeMeleeAimDirection(meleeAimHand, dir))
+	{
+		meleeLockedDir = dir;
+		bHasMeleeLockedDir = true;
+	}
+	else if (!bHasMeleeLockedDir)
+	{
+		return;
+	}
+
+	savedMeleeFacingDir = player->facingDir;
+	savedMeleeFacing = player->facing;
+	savedMeleeDesiredAim = player->desiredAim;
+	savedMeleeAim = player->aim;
+	savedMeleeAim2 = player->aim2;
+	savedMeleeAim3 = player->aim3;
+	savedMeleeCamLook = Helpers::GetCamera().lookDir;
+	savedMeleePlayerLook = Helpers::GetPlayer().lookDir;
+	bMeleeDamageOverridden = true;
+
+	// This function reads unit+0x23C (aim) immediately. facingDir is
+	// also sampled later in the same call for the damage volume.
+	player->facingDir = meleeLockedDir;
+	player->facing = meleeLockedDir;
+	player->desiredAim = meleeLockedDir;
+	player->aim = meleeLockedDir;
+	player->aimVelocity = Vector3(0.0f, 0.0f, 0.0f);
+	player->aim2 = meleeLockedDir;
+	player->aim3 = meleeLockedDir;
+	Helpers::GetCamera().lookDir = meleeLockedDir;
+	Helpers::GetPlayer().lookDir = meleeLockedDir;
+}
+
+void InputHandler::PostMeleeDamage(HaloID& unitID)
+{
+	if (!bMeleeDamageOverridden)
+	{
+		return;
+	}
+
+	UnitDynamicObject* player = static_cast<UnitDynamicObject*>(Helpers::GetDynamicObject(unitID));
+	if (player)
+	{
+		player->facingDir = savedMeleeFacingDir;
+		player->facing = savedMeleeFacing;
+		player->desiredAim = savedMeleeDesiredAim;
+		player->aim = savedMeleeAim;
+		player->aim2 = savedMeleeAim2;
+		player->aim3 = savedMeleeAim3;
+	}
+
+	Helpers::GetCamera().lookDir = savedMeleeCamLook;
+	Helpers::GetPlayer().lookDir = savedMeleePlayerLook;
+	bMeleeDamageOverridden = false;
 }
 
 unsigned char InputHandler::UpdateCrouch()
