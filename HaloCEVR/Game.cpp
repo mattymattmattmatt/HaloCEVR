@@ -182,6 +182,16 @@ void Game::OnInitDirectX()
 	scopeSurfaces[0] = vr->GetScopeSurface();
 	scopeTextures[0] = vr->GetScopeTexture();
 
+	// OnGameFinishInit creates none of these when OpenVR is unavailable (no
+	// headset, runtime not running), and everything below dereferences them.
+	// Bail with a clear log line rather than faulting, so the game still runs
+	// flat instead of taking the process down.
+	if (!scopeSurfaces[0])
+	{
+		Logger::err << "[Game] VR surfaces unavailable, skipping VR render setup" << std::endl;
+		return;
+	}
+
 	D3DSURFACE_DESC desc;
 	scopeSurfaces[0]->GetDesc(&desc);
 
@@ -308,6 +318,7 @@ void Game::PreDrawFrame(struct Renderer* renderer, float deltaTime)
 	}
 
 	DrawGrenadeArc();
+	DrawGrenadePunchFx();
 
 	UpdateGrenadeVelocityScan();
 
@@ -733,6 +744,36 @@ void Game::DrawGrenadeArc()
 
 		pos = nextPos;
 	}
+}
+
+void Game::BeginGrenadePunchFx(const Vector3& worldPos)
+{
+	grenadePunchFxPos = worldPos;
+	grenadePunchFxTimer = 0.35f;
+}
+
+void Game::DrawGrenadePunchFx()
+{
+	if (grenadePunchFxTimer <= 0.0f)
+	{
+		return;
+	}
+
+	grenadePunchFxTimer -= lastDeltaTime;
+	if (grenadePunchFxTimer < 0.0f)
+	{
+		grenadePunchFxTimer = 0.0f;
+	}
+
+	const float life = 0.35f;
+	const float t = 1.0f - (grenadePunchFxTimer / life);
+	const int alpha = static_cast<int>(220.0f * (1.0f - t));
+	const float r0 = MetresToWorld(0.25f + t * 2.4f);
+	const float r1 = MetresToWorld(0.12f + t * 1.4f);
+	Vector3 up(0.0f, 0.0f, 1.0f);
+	Vector3 right(1.0f, 0.0f, 0.0f);
+	inGameRenderer.DrawPolygon(grenadePunchFxPos, up, right, 14, r0, D3DCOLOR_ARGB(alpha, 255, 180, 60), false);
+	inGameRenderer.DrawPolygon(grenadePunchFxPos, right, up, 12, r1, D3DCOLOR_ARGB(alpha, 255, 90, 40), false);
 }
 
 void Game::UpdateGrenadeVelocityScan()
@@ -1673,6 +1714,9 @@ void Game::SetupConfigs()
 	}
 	c_DisableTwoHandForOneHanded = config.RegisterBool("DisableTwoHandForOneHanded", "Prevent the two hand grip from activating while holding a one handed weapon (pistol, plasma pistol, plasma rifle or needler), which has no real two handed hold", true);
 	c_ThrowGrenadeOnRelease = config.RegisterBool("ThrowGrenadeOnRelease", "Throw the grenade when the grenade button is released, rather than immediately when pressed. Lets you hold the button while winding up the throw motion", false);
+	c_GrenadePunch = config.RegisterBool("GrenadePunch", "While ThrowGrenadeOnRelease is on, hold the grenade button and land an off-hand melee on a character or vehicle to detonate your currently selected grenade (frag or plasma) at the punch. Weapon-hand melee is unchanged. Uses one grenade of that type. Real in-game explosion, does not hurt you, still deals melee damage", false);
+	c_GrenadePunchPower = config.RegisterFloat("GrenadePunchPower", "Explosion strength multiplier for the grenade punch. 1 is a single grenade, 2 stacks two blasts at the same spot, and so on, up to 8. Still only spends one grenade", 1.0f);
+	c_GrenadePunchBlastDrop = config.RegisterFloat("GrenadePunchBlastDrop", "How far below your fist the grenade punch detonates, in metres. A blast under the target launches it up and away instead of slamming it into the ground", 0.6f);
 	c_ShowGrenadeArc = config.RegisterBool("ShowGrenadeArc", "Draw a predicted trajectory arc from your throwing hand while the grenade button is held", false);
 	c_GrenadeArcSpeed = config.RegisterFloat("GrenadeArcSpeed", "Grenade launch speed in metres per second for the predicted arc. Fixed for every throw; short vs long is aim angle only. Measured in-game at about 26.5 m/s", 26.5f);
 	c_GrenadeArcYawOffset = config.RegisterFloat("GrenadeArcYawOffset", "Yaw correction in degrees applied to the grenade arc, compensating for the angle the controller is held at. Automatically mirrored in left handed mode. Tuned for Quest 3 via Virtual Desktop; other controllers may want a different value", -10.0f);

@@ -66,6 +66,13 @@ void Hooks::InitHooks()
 	// These are handled with a direct patch, so manually scan them
 	SigScanner::UpdateOffset(o.CutsceneFPSCap);
 	SigScanner::UpdateOffset(o.CreateMouseDevice);
+	SigScanner::UpdateOffset(o.MouseNullCheck);
+	SigScanner::UpdateOffset(o.MouseInfoPush);
+	SigScanner::UpdateOffset(o.MouseClickDispatch);
+	SigScanner::UpdateOffset(o.MouseNullCheck2);
+	SigScanner::UpdateOffset(o.MouseNullCheck3);
+	SigScanner::UpdateOffset(o.CreateObjectQuery);
+	SigScanner::UpdateOffset(o.CreateObject);
 	SigScanner::UpdateOffset(o.SetViewModelVisible);
 	SigScanner::UpdateOffset(o.TextureAlphaWrite);
 	SigScanner::UpdateOffset(o.TextAlphaWrite);
@@ -125,6 +132,7 @@ void Hooks::EnableAllHooks()
 	P_RemoveCinematicBars();
 
 	P_DontStealMouse();
+	P_FixNullMouseCrash();
 
 	// If we think the user has chimera installed, don't try to patch their patches
 	if (!Game::instance.bDetectedChimera)
@@ -1027,6 +1035,52 @@ void Hooks::P_DontStealMouse()
 	// Changing it to non-exclusive is fine for our purposes (VR/testing),
 	// but does cause the mouse to stop being locked to the window in game
 	SetByte(o.CreateMouseDevice.Address + 0x5B, 6);
+}
+
+void Hooks::P_FixNullMouseCrash()
+{
+	// Stock Halo bug, and the cause of the halo+0x9731C segmentation fault:
+	//
+	//     mov  eax, [0x6B1804]   ; DirectInput mouse device
+	//     xor  edi, edi
+	//     test eax, eax
+	//     je   0x49731C          ; null -> jump with edi STILL ZERO
+	//     ...
+	//     mov  edi, 0x6B180C     ; non-null path points edi at a real global
+	//     fild dword ptr [edi]   ; <- reads through null and faults
+	//
+	// The null check jumps *into* the block it should be skipping, so losing
+	// the mouse device at any point kills the game. NOPing the conditional
+	// jump makes both paths fall through to the code that assigns edi a valid
+	// global, so the read is always in bounds. Worst case the sensitivity is
+	// read from the same globals the normal path uses, which is harmless.
+	NOPInstructions(o.MouseNullCheck.Address, 2);
+
+	Logger::log << "[Hook] Patched null mouse device crash (halo+0x9731C)" << std::endl;
+
+	// The menu click dispatcher reads buttonState[0] to raise a UI click, but
+	// bails first if the DirectInput mouse device is null. The mod writes that
+	// button state itself for VR, so the device check just throws our clicks
+	// away whenever the physical mouse is asleep or absent. Drop the check and
+	// let the button state speak for itself - the later tests (button pressed,
+	// UI accepting input) still gate it, so nothing fires spuriously.
+	NOPInstructions(o.MouseClickDispatch.Address + 7, 2);
+
+	Logger::log << "[Hook] Patched menu click device gate (halo+0x8F6AF)" << std::endl;
+
+	// Same null-mouse bug again, this time on the load-a-save path: the jump
+	// lands past the assignment that gives esi a real address, and esi is
+	// dereferenced further down. Fall through so esi is always valid.
+	NOPInstructions(o.MouseNullCheck2.Address + 2, 2);
+
+	Logger::log << "[Hook] Patched null mouse device crash 2 (halo+0x8CD27)" << std::endl;
+
+	// Third instance. All five places Halo assigns the mouse state pointer were
+	// audited; two (halo+0x445FEE, halo+0x4B817E) assign before branching or
+	// re-check before dereferencing, so these three are the complete set.
+	NOPInstructions(o.MouseNullCheck3.Address + 10, 2);
+
+	Logger::log << "[Hook] Patched null mouse device crash 3 (halo+0x8F9E4)" << std::endl;
 }
 
 void Hooks::SetCameraMatrices(struct Viewport* viewport, struct CameraFrustum* frustum, struct CameraRenderMatrices* crm, bool bDoProjection)

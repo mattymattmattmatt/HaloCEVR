@@ -20,8 +20,12 @@ public:
 	// that reads it (same pattern as FireWeapon).
 	void PreMeleeDamage(HaloID& unitID);
 	void PostMeleeDamage(HaloID& unitID);
+	void TryGrenadePunch(HaloID& unitID);
 	void SetMousePosition(int& x, int& y);
 	void UpdateMouseInfo(struct MouseInfo* mouseInfo);
+	// Drives the VR menu click directly, for when Halo skips its own mouse
+	// update because the physical mouse device has gone away.
+	void UpdateVirtualMouseButtons();
 	bool GetCalculatedHandPositions(Matrix4& controllerTransform, Vector3& dominantHandPos, Vector3& offHand);
 	void CalculateSmoothedInput();
 
@@ -43,9 +47,13 @@ protected:
 	unsigned char UpdateMelee();
 	void BeginMeleeAimOverride(ControllerRole hand);
 	bool IsMeleeAimOverrideActive() const;
+	ControllerRole GetWeaponHand() const;
+	ControllerRole GetOffHand() const;
 	bool ComputeMeleeAimDirection(ControllerRole hand, Vector3& outDir) const;
 	Vector3 GetHandWorldPosition(ControllerRole hand) const;
 	bool FindMeleeTarget(const Vector3& origin, const Vector3& handWorld, Vector3& outDir) const;
+	void SnapshotGrenadePunchTargets(HaloID localID);
+	bool GrenadePunchHitValidTarget() const;
 	unsigned char UpdateCrouch();
 
 	// Update Controls that rely on the distance between hands
@@ -55,6 +63,10 @@ protected:
 
 	char lastSnapState = 0;
 	unsigned char mouseDownState = 0;
+	// buttonState2[0]: set for the single frame a held button is released.
+	// Halo's UI treats that release edge as the completed click, so it drives
+	// the click sound - without it a press registers silently.
+	unsigned char mouseReleaseEdge = 0;
 
 	bool bHoldingMenu = false;
 	std::chrono::time_point<std::chrono::high_resolution_clock> menuHeldTime;
@@ -63,6 +75,47 @@ protected:
 	bool bWasSwappingHands = false;
 	bool bWasTappingHUD = false;
 	bool bWasGrenadeHeld = false;
+	// Suppresses the real throw on the release that ends a punching hold.
+	// Cleared by the throw path's debounced release, so it stays in step with
+	// the throw pulse it is guarding.
+	bool bGrenadePunchUsedThisHold = false;
+	// Enforces one punch per hold. Cleared as soon as the button physically
+	// reads as not held, independent of the throw debounce.
+	bool bGrenadePunchSpentThisHold = false;
+	bool bInGrenadePunch = false;
+	struct ReentryGuard
+	{
+		bool& flag;
+		explicit ReentryGuard(bool& f) : flag(f) { flag = true; }
+		~ReentryGuard() { flag = false; }
+	};
+	bool bGrenadePunchArmed = false;
+	// Arming only lasts for the swing that set it, so a stale arm from an
+	// earlier punch can never fire a later one.
+	float grenadePunchArmTimer = 0.0f;
+	int grenadePunchInvulnFrames = 0;
+	int grenadePunchArmFrames = 0;
+	uint16_t grenadePunchSavedDamageFlags = 0;
+	float grenadePunchSavedHealth = 0.0f;
+	float grenadePunchSavedShield = 0.0f;
+	Vector3 grenadePunchSavedVelocity = Vector3(0.0f, 0.0f, 0.0f);
+	HaloID grenadePunchPlayerID{};
+	static const int kMaxGrenadePunchSpawns = 8;
+	HaloID grenadePunchSpawnedIDs[kMaxGrenadePunchSpawns]{};
+	int grenadePunchSpawnCount = 0;
+	struct GrenadePunchHpSnap
+	{
+		uint16_t index = 0;
+		uint16_t datumId = 0;
+		float health = 0.0f;
+		float shield = 0.0f;
+		bool isVehicle = false;
+		// Distance from the fist at the moment the swing landed.
+		float distSqr = 0.0f;
+	};
+	static const int kMaxGrenadePunchSnaps = 48;
+	GrenadePunchHpSnap grenadePunchSnaps[kMaxGrenadePunchSnaps];
+	int grenadePunchSnapCount = 0;
 	float grenadeReleaseTimer = 0.0f;
 	int grenadeThrowPulseFrames = 0;
 	bool bWasTogglingCrosshair = false;

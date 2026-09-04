@@ -21,12 +21,62 @@ Logger Logger::log("VR/inject.log");
 Logger::LoggerAlert Logger::err(&Logger::log);
 Game Game::instance;
 
+// Chimera installs its own handler and shows "Segmentation fault" without the
+// address, and it suppresses the Windows error report too, so a crash leaves no
+// trace of where it happened. This logs the faulting instruction as
+// module+offset and then passes the exception straight on, changing nothing
+// about how the crash is ultimately handled.
+static LONG CALLBACK LogCrashAddress(EXCEPTION_POINTERS* info)
+{
+	if (!info || !info->ExceptionRecord || info->ExceptionRecord->ExceptionCode != EXCEPTION_ACCESS_VIOLATION)
+	{
+		return EXCEPTION_CONTINUE_SEARCH;
+	}
+
+	void* addr = info->ExceptionRecord->ExceptionAddress;
+
+	char moduleName[MAX_PATH] = "<unknown>";
+	uintptr_t rva = reinterpret_cast<uintptr_t>(addr);
+	HMODULE module = nullptr;
+	if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+		static_cast<LPCSTR>(addr), &module) && module)
+	{
+		char path[MAX_PATH];
+		if (GetModuleFileNameA(module, path, MAX_PATH))
+		{
+			// Trim to the file name; accept either separator.
+			const char* name = path;
+			for (const char* c = path; *c; c++)
+			{
+				if (*c == 0x2F || *c == 0x5C)
+				{
+					name = c + 1;
+				}
+			}
+			strncpy(moduleName, name, MAX_PATH - 1);
+			moduleName[MAX_PATH - 1] = 0;
+		}
+		rva -= reinterpret_cast<uintptr_t>(module);
+	}
+
+	// ExceptionInformation[0]: 0 = read, 1 = write, 8 = execute.
+	const ULONG_PTR op = info->ExceptionRecord->NumberParameters > 0 ? info->ExceptionRecord->ExceptionInformation[0] : 0;
+	const ULONG_PTR target = info->ExceptionRecord->NumberParameters > 1 ? info->ExceptionRecord->ExceptionInformation[1] : 0;
+
+	Logger::log << "[CRASH] Access violation at " << moduleName << "+0x" << std::hex << rva
+		<< " (" << (op == 1 ? "write" : op == 8 ? "execute" : "read")
+		<< " of 0x" << target << ")" << std::dec << std::endl;
+
+	return EXCEPTION_CONTINUE_SEARCH;
+}
+
 BOOL APIENTRY DllMain( HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
 {
 	switch (ul_reason_for_call)
 	{
 	case DLL_PROCESS_ATTACH:
 		Logger::log << "[DLL] HaloCEVR attached" << std::endl;
+		AddVectoredExceptionHandler(1, LogCrashAddress);
 		break;
 	case DLL_THREAD_ATTACH:
 	case DLL_THREAD_DETACH:

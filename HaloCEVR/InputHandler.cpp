@@ -10,6 +10,7 @@
 #include "Logger.h"
 #include <chrono>
 #include <cmath>
+#include <algorithm>
 
 #include <windows.h>
 #include <mmsystem.h>
@@ -91,6 +92,58 @@ void InputHandler::UpdateInputs(bool bInVehicle)
 
 	vr->UpdateInputs();
 
+	UpdateVirtualMouseButtons();
+
+	if (grenadePunchArmFrames > 0)
+	{
+		ObjectTable& objects = Helpers::GetObjectTable();
+		bool anyAlive = false;
+		for (int i = 0; i < grenadePunchSpawnCount; ++i)
+		{
+			const HaloID& spawnedID = grenadePunchSpawnedIDs[i];
+			const bool slotValid = objects.elements
+				&& spawnedID.index < objects.currentSize
+				&& objects.elements[spawnedID.index].id == spawnedID.id;
+			BaseDynamicObject* armedNade = slotValid ? objects.elements[spawnedID.index].dynamicObject : nullptr;
+			if (armedNade)
+			{
+				// Do not restart the fuse; just keep it unfrozen / at-rest / armed.
+				Helpers::ArmProjectileDetonation(armedNade, false);
+				anyAlive = true;
+			}
+		}
+		if (anyAlive)
+		{
+			grenadePunchArmFrames--;
+		}
+		else
+		{
+			grenadePunchArmFrames = 0;
+			grenadePunchSpawnCount = 0;
+		}
+	}
+
+	if (grenadePunchInvulnFrames > 0)
+	{
+		grenadePunchInvulnFrames--;
+		UnitDynamicObject* punchPlayer = static_cast<UnitDynamicObject*>(Helpers::GetDynamicObject(grenadePunchPlayerID));
+		if (punchPlayer)
+		{
+			punchPlayer->N00000311 = grenadePunchSavedDamageFlags | (1u << 11);
+			if (grenadePunchInvulnFrames == 0)
+			{
+				punchPlayer->N00000311 = grenadePunchSavedDamageFlags;
+				punchPlayer->health = grenadePunchSavedHealth;
+				punchPlayer->shield = grenadePunchSavedShield;
+				punchPlayer->velocity = grenadePunchSavedVelocity;
+			}
+		}
+		else if (grenadePunchInvulnFrames == 0)
+		{
+			// Player object went away; nothing to restore.
+		}
+	}
+
 	static bool bHasChanged = false;
 
 	if (Game::instance.bIsCustom)
@@ -133,22 +186,38 @@ void InputHandler::UpdateInputs(bool bInVehicle)
 			const float debounceTime = 0.08f; // ~5 frames at 60fps
 			bool bReleasedThisFrame = bWasGrenadeHeld && !bGrenadeRawHeld && grenadeReleaseTimer >= debounceTime;
 
-			// Hold the throw pulse for a couple of frames rather than exactly one,
-			// so it cannot land on a frame the engine happens not to poll cleanly.
-			if (bReleasedThisFrame)
+			if (bGrenadePunchUsedThisHold)
 			{
-				bWasGrenadeHeld = false;
-				grenadeThrowPulseFrames = 3;
-			}
-
-			if (grenadeThrowPulseFrames > 0)
-			{
-				controls.Grenade = 127;
-				grenadeThrowPulseFrames--;
+				if (bReleasedThisFrame)
+				{
+					bWasGrenadeHeld = false;
+					bGrenadePunchUsedThisHold = false;
+					bGrenadePunchSpentThisHold = false;
+					bGrenadePunchArmed = false;
+					grenadePunchArmTimer = 0.0f;
+				}
+				grenadeThrowPulseFrames = 0;
+				controls.Grenade = 0;
 			}
 			else
 			{
-				controls.Grenade = 0;
+				// Hold the throw pulse for a couple of frames rather than exactly one,
+				// so it cannot land on a frame the engine happens not to poll cleanly.
+				if (bReleasedThisFrame)
+				{
+					bWasGrenadeHeld = false;
+					grenadeThrowPulseFrames = 3;
+				}
+
+				if (grenadeThrowPulseFrames > 0)
+				{
+					controls.Grenade = 127;
+					grenadeThrowPulseFrames--;
+				}
+				else
+				{
+					controls.Grenade = 0;
+				}
 			}
 		}
 		else
@@ -204,22 +273,38 @@ void InputHandler::UpdateInputs(bool bInVehicle)
 			const float debounceTime = 0.08f; // ~5 frames at 60fps
 			bool bReleasedThisFrame = bWasGrenadeHeld && !bGrenadeRawHeld && grenadeReleaseTimer >= debounceTime;
 
-			// Hold the throw pulse for a couple of frames rather than exactly one,
-			// so it cannot land on a frame the engine happens not to poll cleanly.
-			if (bReleasedThisFrame)
+			if (bGrenadePunchUsedThisHold)
 			{
-				bWasGrenadeHeld = false;
-				grenadeThrowPulseFrames = 3;
-			}
-
-			if (grenadeThrowPulseFrames > 0)
-			{
-				controls.Grenade = 127;
-				grenadeThrowPulseFrames--;
+				if (bReleasedThisFrame)
+				{
+					bWasGrenadeHeld = false;
+					bGrenadePunchUsedThisHold = false;
+					bGrenadePunchSpentThisHold = false;
+					bGrenadePunchArmed = false;
+					grenadePunchArmTimer = 0.0f;
+				}
+				grenadeThrowPulseFrames = 0;
+				controls.Grenade = 0;
 			}
 			else
 			{
-				controls.Grenade = 0;
+				// Hold the throw pulse for a couple of frames rather than exactly one,
+				// so it cannot land on a frame the engine happens not to poll cleanly.
+				if (bReleasedThisFrame)
+				{
+					bWasGrenadeHeld = false;
+					grenadeThrowPulseFrames = 3;
+				}
+
+				if (grenadeThrowPulseFrames > 0)
+				{
+					controls.Grenade = 127;
+					grenadeThrowPulseFrames--;
+				}
+				else
+				{
+					controls.Grenade = 0;
+				}
 			}
 		}
 		else
@@ -322,6 +407,25 @@ void InputHandler::UpdateInputs(bool bInVehicle)
 		{
 			meleeAimOverrideTimer = 0.0f;
 			bHasMeleeLockedDir = false;
+		}
+	}
+
+	// The once-per-hold lock clears as soon as the button physically reads as
+	// not held. The throw path's 0.08s release debounce must not gate this: a
+	// quick re-grab inside that window used to leave the lock stuck on, and
+	// every later punch that hold silently did nothing.
+	if (bGrenadePunchSpentThisHold && !IsGrenadeHeld())
+	{
+		bGrenadePunchSpentThisHold = false;
+	}
+
+	if (grenadePunchArmTimer > 0.0f)
+	{
+		grenadePunchArmTimer -= Game::instance.lastDeltaTime;
+		if (grenadePunchArmTimer <= 0.0f)
+		{
+			grenadePunchArmTimer = 0.0f;
+			bGrenadePunchArmed = false;
 		}
 	}
 
@@ -844,25 +948,47 @@ unsigned char InputHandler::UpdateMelee()
 	}
 
 	// Button melee (SteamVR binding, unset by default): still aim from the
-	// weapon hand rather than the headset.
+	// weapon hand rather than the headset. Grenade punch stays off-hand only.
 	const bool bMeleeButton = vr->GetBoolInput(Melee);
 	if (bMeleeButton && !bWasMeleeButton)
 	{
-		BeginMeleeAimOverride(Game::instance.bLeftHanded ? ControllerRole::Left : ControllerRole::Right);
+		BeginMeleeAimOverride(GetWeaponHand());
 	}
 	bWasMeleeButton = bMeleeButton;
 
 	return 0;
 }
 
+ControllerRole InputHandler::GetWeaponHand() const
+{
+	return Game::instance.bLeftHanded ? ControllerRole::Left : ControllerRole::Right;
+}
+
+ControllerRole InputHandler::GetOffHand() const
+{
+	return Game::instance.bLeftHanded ? ControllerRole::Right : ControllerRole::Left;
+}
+
 void InputHandler::BeginMeleeAimOverride(ControllerRole hand)
 {
+	meleeAimHand = hand;
+
+	// Re-evaluated on every swing, never left over from a previous one: a
+	// weapon-hand swing or a swing with no grenade held actively disarms.
+	bGrenadePunchArmed = hand == GetOffHand()
+		&& Game::instance.c_GrenadePunch && Game::instance.c_GrenadePunch->Value()
+		&& Game::instance.c_ThrowGrenadeOnRelease && Game::instance.c_ThrowGrenadeOnRelease->Value()
+		&& !bGrenadePunchSpentThisHold
+		&& IsGrenadeHeld();
+	// CE melee damage lands a few ticks in; give the arm the same window as
+	// the aim override, then it expires on its own.
+	grenadePunchArmTimer = bGrenadePunchArmed ? 0.7f : 0.0f;
+
 	if (Game::instance.c_MeleeFromHand && !Game::instance.c_MeleeFromHand->Value())
 	{
 		return;
 	}
 
-	meleeAimHand = hand;
 	// CE melee damage lands a few ticks into the animation. Keep the
 	// hand-aim override up long enough to cover that window.
 	meleeAimOverrideTimer = 0.7f;
@@ -885,6 +1011,10 @@ bool InputHandler::IsMeleeAimOverrideActive() const
 Vector3 InputHandler::GetHandWorldPosition(ControllerRole hand) const
 {
 	IVR* vr = Game::instance.GetVR();
+	if (!vr)
+	{
+		return Helpers::GetCamera().position;
+	}
 	const Vector3 hmd = vr->GetHMDTransform(true) * Vector3(0.0f, 0.0f, 0.0f);
 	const Vector3 handPos = vr->GetControllerTransform(hand, true) * Vector3(0.0f, 0.0f, 0.0f);
 	return Helpers::GetCamera().position + (handPos - hmd) * Game::instance.MetresToWorld(1.0f);
@@ -920,6 +1050,10 @@ bool InputHandler::FindMeleeTarget(const Vector3& origin, const Vector3& handWor
 	const uint16_t count = table.currentSize;
 	for (uint16_t i = 0; i < count; ++i)
 	{
+		if (table.elements[i].id == 0)
+		{
+			continue;
+		}
 		BaseDynamicObject* obj = table.elements[i].dynamicObject;
 		if (!obj)
 		{
@@ -1039,17 +1173,133 @@ bool InputHandler::ComputeMeleeAimDirection(ControllerRole hand, Vector3& outDir
 	return false;
 }
 
-void InputHandler::PreMeleeDamage(HaloID& unitID)
+void InputHandler::SnapshotGrenadePunchTargets(HaloID localID)
 {
-	bMeleeDamageOverridden = false;
+	grenadePunchSnapCount = 0;
 
-	if (!IsMeleeAimOverrideActive())
+	ObjectTable& table = Helpers::GetObjectTable();
+	if (!table.elements)
 	{
 		return;
 	}
 
+	const Vector3 fist = GetHandWorldPosition(GetOffHand());
+	const float rangeSqr = Game::instance.MetresToWorld(3.5f) * Game::instance.MetresToWorld(3.5f);
+	const uint16_t count = table.currentSize;
+	for (uint16_t i = 0; i < count && grenadePunchSnapCount < kMaxGrenadePunchSnaps; ++i)
+	{
+		if (i == localID.index)
+		{
+			continue;
+		}
+		// id == 0 marks a free slot; its dynamicObject pointer may be stale.
+		if (table.elements[i].id == 0)
+		{
+			continue;
+		}
+		BaseDynamicObject* obj = table.elements[i].dynamicObject;
+		if (!obj)
+		{
+			continue;
+		}
+		if (obj->N0000027E != ObjectType::BIPED && obj->N0000027E != ObjectType::VEHICLE)
+		{
+			continue;
+		}
+
+		Vector3 pos = obj->centre;
+		if (pos.lengthSqr() < 1e-8f)
+		{
+			pos = obj->position;
+		}
+		if ((pos - fist).lengthSqr() > rangeSqr)
+		{
+			continue;
+		}
+
+		GrenadePunchHpSnap& snap = grenadePunchSnaps[grenadePunchSnapCount++];
+		snap.index = i;
+		snap.datumId = table.elements[i].id;
+		snap.health = obj->health;
+		snap.shield = obj->shield;
+		snap.isVehicle = obj->N0000027E == ObjectType::VEHICLE;
+		snap.distSqr = (pos - fist).lengthSqr();
+	}
+}
+
+bool InputHandler::GrenadePunchHitValidTarget() const
+{
+	if (grenadePunchSnapCount <= 0)
+	{
+		return false;
+	}
+
+	ObjectTable& table = Helpers::GetObjectTable();
+	if (!table.elements)
+	{
+		return false;
+	}
+
+	// Vehicle hulls are big; their centre sits well back from the panel you
+	// actually punched, so allow a generous reach for them.
+	const float vehicleReach = Game::instance.MetresToWorld(2.5f);
+	const float vehicleReachSqr = vehicleReach * vehicleReach;
+
+	for (int s = 0; s < grenadePunchSnapCount; ++s)
+	{
+		const GrenadePunchHpSnap& snap = grenadePunchSnaps[s];
+		if (snap.index >= table.currentSize)
+		{
+			continue;
+		}
+		if (snap.datumId == 0 || table.elements[snap.index].id != snap.datumId)
+		{
+			continue;
+		}
+		BaseDynamicObject* obj = table.elements[snap.index].dynamicObject;
+		if (!obj)
+		{
+			continue;
+		}
+		// Vehicles often take no melee damage at all, so a hull we were close
+		// enough to punch counts as a hit whether or not its health moved.
+		if (snap.isVehicle && snap.distSqr <= vehicleReachSqr)
+		{
+			return true;
+		}
+		if (obj->health + 0.001f < snap.health || obj->shield + 0.001f < snap.shield)
+		{
+			return true;
+		}
+		if (snap.health > 0.0f && obj->health <= 0.0f)
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
+void InputHandler::PreMeleeDamage(HaloID& unitID)
+{
+	bMeleeDamageOverridden = false;
+
 	HaloID localID;
 	if (!Helpers::GetLocalPlayerID(localID) || localID.index != unitID.index)
+	{
+		return;
+	}
+
+	if (bGrenadePunchArmed && meleeAimHand == GetOffHand())
+	{
+		SnapshotGrenadePunchTargets(localID);
+	}
+	else
+	{
+		grenadePunchSnapCount = 0;
+	}
+
+	if (!IsMeleeAimOverrideActive())
 	{
 		return;
 	}
@@ -1094,8 +1344,210 @@ void InputHandler::PreMeleeDamage(HaloID& unitID)
 	Helpers::GetPlayer().lookDir = meleeLockedDir;
 }
 
+void InputHandler::TryGrenadePunch(HaloID& unitID)
+{
+	// Spawning and detonating from inside the engine's melee damage call can
+	// re-enter that same call through the blast's own damage. Never nest.
+	if (bInGrenadePunch)
+	{
+		return;
+	}
+	ReentryGuard guard(bInGrenadePunch);
+
+	static int s_logged = 0;
+	auto logOnce = [&](const char* why)
+	{
+		if (s_logged < 12)
+		{
+			Logger::log << "[GrenadePunch] skip: " << why << std::endl;
+			s_logged++;
+		}
+	};
+
+	if (!Game::instance.c_GrenadePunch || !Game::instance.c_GrenadePunch->Value())
+	{
+		logOnce("GrenadePunch config off");
+		return;
+	}
+	if (!Game::instance.c_ThrowGrenadeOnRelease || !Game::instance.c_ThrowGrenadeOnRelease->Value())
+	{
+		logOnce("ThrowGrenadeOnRelease off");
+		return;
+	}
+	if (!bGrenadePunchArmed || grenadePunchArmTimer <= 0.0f)
+	{
+		logOnce("swing was not armed (grenade not held on an off-hand swing)");
+		return;
+	}
+	if (meleeAimHand != GetOffHand())
+	{
+		logOnce("weapon-hand melee");
+		return;
+	}
+
+	HaloID localID;
+	if (!Helpers::GetLocalPlayerID(localID) || localID.index != unitID.index)
+	{
+		return;
+	}
+
+	if (!GrenadePunchHitValidTarget())
+	{
+		logOnce("no character or vehicle hit");
+		return;
+	}
+
+	UnitDynamicObject* player = static_cast<UnitDynamicObject*>(Helpers::GetDynamicObject(unitID));
+	if (!player)
+	{
+		logOnce("no player object");
+		return;
+	}
+
+	if (player->parent.index != 0xFFFF)
+	{
+		BaseDynamicObject* parentObj = Helpers::GetDynamicObject(player->parent);
+		if (parentObj)
+		{
+			logOnce("in vehicle/parented");
+			return;
+		}
+	}
+
+	int grenadeType = player->currentGrenadeIndex;
+	if (grenadeType == 1 && player->plasmaGrenadeCount > 0)
+	{
+		player->plasmaGrenadeCount--;
+	}
+	else if (player->fragGrenadeCount > 0)
+	{
+		grenadeType = 0;
+		player->fragGrenadeCount--;
+	}
+	else if (player->plasmaGrenadeCount > 0)
+	{
+		grenadeType = 1;
+		player->plasmaGrenadeCount--;
+	}
+	else
+	{
+		return;
+	}
+
+	HaloID grenadeTag;
+	if (!Helpers::FindGrenadeProjectileTag(grenadeType, grenadeTag))
+	{
+		if (grenadeType == 1)
+		{
+			player->plasmaGrenadeCount++;
+		}
+		else
+		{
+			player->fragGrenadeCount++;
+		}
+		logOnce("no grenade projectile tag");
+		return;
+	}
+
+	ControllerRole fist = GetOffHand();
+	const Vector3 origin = GetHandWorldPosition(fist);
+	Vector3 blastPos = origin;
+	if (bHasMeleeLockedDir)
+	{
+		blastPos = origin + meleeLockedDir * Game::instance.MetresToWorld(0.35f);
+	}
+
+	// Detonating below the contact point makes Halo's radial impulse push the
+	// target up and away, instead of driving it straight into the floor.
+	float blastDrop = Game::instance.c_GrenadePunchBlastDrop ? Game::instance.c_GrenadePunchBlastDrop->Value() : 0.6f;
+	blastDrop = (std::max)(0.0f, (std::min)(blastDrop, 3.0f));
+	blastPos.z -= Game::instance.MetresToWorld(blastDrop);
+
+	// Never drop the blast below the ground you are standing on. A projectile
+	// spawned inside BSP geometry is a reliable way to crash the collision code.
+	const float floorZ = player->position.z + Game::instance.MetresToWorld(0.15f);
+	if (blastPos.z < floorZ)
+	{
+		blastPos.z = floorZ;
+	}
+
+	float power = Game::instance.c_GrenadePunchPower ? Game::instance.c_GrenadePunchPower->Value() : 1.0f;
+	int blastCount = static_cast<int>(power + 0.5f);
+	blastCount = (std::max)(1, (std::min)(blastCount, kMaxGrenadePunchSpawns));
+
+	HaloID noParent;
+	noParent.index = 0xFFFF;
+	noParent.id = 0xFFFF;
+
+	grenadePunchSpawnCount = 0;
+	for (int i = 0; i < blastCount; ++i)
+	{
+		// Stack the extra blasts a few centimetres apart so the engine treats
+		// them as separate projectiles rather than collapsing them.
+		Vector3 spawnPos = blastPos;
+		spawnPos.z += Game::instance.MetresToWorld(0.08f * i);
+
+		Logger::log << "[GrenadePunch] spawning " << (i + 1) << "/" << blastCount
+			<< " type=" << grenadeType << std::endl;
+		HaloID spawned = Helpers::SpawnObject(grenadeTag, spawnPos, noParent);
+		BaseDynamicObject* grenade = Helpers::GetDynamicObject(spawned);
+		if (!grenade)
+		{
+			continue;
+		}
+
+		uint8_t* raw = reinterpret_cast<uint8_t*>(grenade);
+		*reinterpret_cast<HaloID*>(raw + 0xC4) = unitID;
+		*reinterpret_cast<HaloID*>(raw + 0x234) = unitID;
+		Helpers::ArmProjectileDetonation(grenade);
+		grenadePunchSpawnedIDs[grenadePunchSpawnCount++] = spawned;
+	}
+
+	if (grenadePunchSpawnCount == 0)
+	{
+		if (grenadeType == 1)
+		{
+			player->plasmaGrenadeCount++;
+		}
+		else
+		{
+			player->fragGrenadeCount++;
+		}
+		logOnce("spawn object failed");
+		return;
+	}
+
+	grenadePunchArmFrames = 6;
+
+	Logger::log << "[GrenadePunch] spawned type=" << grenadeType << " tag=" << grenadeTag
+		<< " count=" << grenadePunchSpawnCount << " drop=" << blastDrop << std::endl;
+
+	grenadePunchSavedDamageFlags = player->N00000311;
+	grenadePunchSavedHealth = player->health;
+	grenadePunchSavedShield = player->shield;
+	grenadePunchSavedVelocity = player->velocity;
+	grenadePunchPlayerID = unitID;
+	player->N00000311 = static_cast<uint16_t>(grenadePunchSavedDamageFlags | (1u << 11));
+	grenadePunchInvulnFrames = 24;
+
+	bGrenadePunchUsedThisHold = true;
+	bGrenadePunchSpentThisHold = true;
+	bGrenadePunchArmed = false;
+	grenadePunchArmTimer = 0.0f;
+	grenadeThrowPulseFrames = 0;
+
+	IVR* vr = Game::instance.GetVR();
+	if (vr)
+	{
+		vr->TriggerHapticVibration(fist, 0.0f, 0.22f, 90.0f, 1.0f);
+		vr->TriggerHapticPulse(fist, 3000);
+	}
+}
+
 void InputHandler::PostMeleeDamage(HaloID& unitID)
 {
+	TryGrenadePunch(unitID);
+
 	if (!bMeleeDamageOverridden)
 	{
 		return;
@@ -1148,19 +1600,50 @@ void InputHandler::SetMousePosition(int& x, int& y)
 
 void InputHandler::UpdateMouseInfo(MouseInfo* mouseInfo)
 {
-	if (Game::instance.GetVR()->GetMouseDown())
+	// State is advanced once per frame by UpdateVirtualMouseButtons; this only
+	// stamps the result over whatever the real device reported.
+	mouseInfo->buttonState[0] = mouseDownState;
+	mouseInfo->buttonState2[0] = mouseReleaseEdge;
+}
+
+void InputHandler::UpdateVirtualMouseButtons()
+{
+	IVR* vr = Game::instance.GetVR();
+	if (!vr)
+	{
+		return;
+	}
+
+	// Mirror exactly what Halo's own converter at halo+0x91BC0 does:
+	//   buttonState[i]  = frames held, capped at 255, zero when up
+	//   buttonState2[i] = 1 for the one frame a held button is released
+	// The UI dispatches a press from buttonState but only registers the click
+	// - and plays its sound - from the buttonState2 release edge.
+	if (vr->GetMouseDown())
 	{
 		if (mouseDownState < 255)
 		{
 			mouseDownState++;
 		}
+		mouseReleaseEdge = 0;
 	}
 	else
 	{
+		mouseReleaseEdge = mouseDownState != 0 ? 1 : 0;
 		mouseDownState = 0;
 	}
 
-	mouseInfo->buttonState[0] = mouseDownState;
+	// Halo only calls its UpdateMouseInfo (and so our hook) from a block gated
+	// on the DirectInput mouse device being non-null. A sleeping Bluetooth
+	// mouse nulls that pointer, the whole block is skipped, and menu clicks
+	// stop working even though the VR cursor still moves. Writing the state
+	// straight into the mouse block keeps menus usable with no mouse present.
+	MouseInfo* mouseInfo = Helpers::GetMouseInfo();
+	if (mouseInfo)
+	{
+		mouseInfo->buttonState[0] = mouseDownState;
+		mouseInfo->buttonState2[0] = mouseReleaseEdge;
+	}
 }
 
 bool InputHandler::GetCalculatedHandPositions(Matrix4& controllerTransform, Vector3& dominantHandPos, Vector3& offHand)

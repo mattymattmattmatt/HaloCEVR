@@ -40,6 +40,8 @@ public:
 	float liveAdjustStep = 0.01f;
 	// Draws the predicted grenade trajectory while the grenade button is held
 	void DrawGrenadeArc();
+	void DrawGrenadePunchFx();
+	void BeginGrenadePunchFx(const Vector3& worldPos);
 	static Game instance;
 
 	void Init();
@@ -240,6 +242,9 @@ protected:
 
 	bool bIgnoreNextRoomScaleMovement = false;
 
+	float grenadePunchFxTimer = 0.0f;
+	Vector3 grenadePunchFxPos = Vector3(0.0f, 0.0f, 0.0f);
+
 	//======Configs======//
 public:
 
@@ -311,6 +316,9 @@ public:
 	FloatProperty* c_WristHUDRadarVMax = nullptr;
 	BoolProperty* c_DisableTwoHandForOneHanded = nullptr;
 	BoolProperty* c_ThrowGrenadeOnRelease = nullptr;
+	BoolProperty* c_GrenadePunch = nullptr;
+	FloatProperty* c_GrenadePunchPower = nullptr;
+	FloatProperty* c_GrenadePunchBlastDrop = nullptr;
 	BoolProperty* c_ShowGrenadeArc = nullptr;
 	FloatProperty* c_GrenadeArcSpeed = nullptr;
 	FloatProperty* c_GrenadeArcYawOffset = nullptr;
