@@ -57,6 +57,7 @@ void InputHandler::UpdateRegisteredInputs()
 	RegisterBoolInput(actionSet, Zoom);
 	RegisterBoolInput(actionSet, Reload);
 	RegisterBoolInput(actionSet, TwoHandGrip);
+	RegisterBoolInput(actionSet, CapturePose);
 
 	RegisterVector2Input(actionSet, Move);
 	RegisterVector2Input(actionSet, Look);
@@ -93,6 +94,8 @@ void InputHandler::UpdateInputs(bool bInVehicle)
 	vr->UpdateInputs();
 
 	UpdateVirtualMouseButtons();
+
+	UpdatePoseCapture();
 
 	const bool bSuppressGameplay = ShouldSuppressGameplayInputs();
 
@@ -1623,6 +1626,74 @@ void InputHandler::UpdateMouseInfo(MouseInfo* mouseInfo)
 	}
 }
 
+void InputHandler::UpdatePoseCapture()
+{
+	IVR* vr = Game::instance.GetVR();
+	if (!vr)
+	{
+		return;
+	}
+
+	if (poseCaptureClickTimer > 0.0f)
+	{
+		poseCaptureClickTimer -= Game::instance.lastDeltaTime;
+	}
+
+	// CapturePose is the dedicated action, but a personal SteamVR binding
+	// overrides the shipped default and most setups already have the right
+	// stick click doing something else - so a double press of Zoom counts too.
+	// It only ever writes a log line, so a stray double zoom costs nothing.
+	const bool bPressed = vr->GetBoolInput(CapturePose) || vr->GetBoolInput(Zoom);
+	const bool bRising = bPressed && !bWasCapturePosePressed;
+	bWasCapturePosePressed = bPressed;
+
+	if (!bRising)
+	{
+		return;
+	}
+
+	// First click just arms; a second within the window is the capture. The
+	// stick is easy to knock while looking around, so a single press should
+	// not spam the log.
+	if (poseCaptureClickTimer <= 0.0f)
+	{
+		poseCaptureClickTimer = 0.4f;
+		return;
+	}
+	poseCaptureClickTimer = 0.0f;
+
+	const ControllerRole weaponHand = GetWeaponHand();
+	const ControllerRole offHand = GetOffHand();
+
+	// Reference the frame the weapon model is attached to, and capture the off
+	// hand through the same call that positions its mesh. GetControllerTransform
+	// is the raw pose times the wrist bone matrix (axis remap plus a 180 degree
+	// flip), so capturing raw and replaying through the mesh path lands the hand
+	// at a noticeably wrong angle.
+	const Matrix4 weaponTransform = Game::instance.GetWeaponFrame();
+	const Matrix4 offHandTransform = vr->GetControllerTransform(offHand, true);
+
+	// The pose is just the off hand expressed in the weapon hand's space.
+	// Storing the matrix instead of angles means playback is a single multiply
+	// with no convention to get wrong - the same trick the two handed hold uses.
+	Matrix4 weaponInverse = weaponTransform;
+	weaponInverse.invertAffine();
+	const Matrix4 delta = weaponInverse * offHandTransform;
+
+	const WeaponType type = Game::instance.GetCurrentWeaponType();
+	HandPose::Capture(type, delta);
+
+	const Vector3 localPos = delta * Vector3(0.0f, 0.0f, 0.0f);
+	Logger::log << "[PoseCapture] saved " << GetWeaponTypeName(type)
+		<< " oneHanded=" << (Game::instance.IsCurrentWeaponOneHanded() ? "yes" : "no")
+		<< " offset=(" << localPos.x << ", " << localPos.y << ", " << localPos.z << ")m"
+		<< " -> VR/poses/offhandposes.txt" << std::endl;
+
+	// Two short pulses so it is obvious in the headset that it recorded.
+	vr->TriggerHapticVibration(offHand, 0.0f, 0.06f, 120.0f, 0.6f);
+	vr->TriggerHapticVibration(weaponHand, 0.0f, 0.06f, 120.0f, 0.6f);
+}
+
 void InputHandler::NotifyMenuVisible(bool bVisible)
 {
 	if (!bVisible)
@@ -2073,8 +2144,26 @@ void InputHandler::UpdateTwoHandedHold(float handDistance, bool handsWithinSwapW
 		&& Game::instance.IsCurrentWeaponOneHanded())
 	{
 		Game::instance.bUseTwoHandAim = false;
+
+		// Aiming stays single handed, but the off hand can still be posed on
+		// the weapon while the grip is held. Cosmetic only.
+		IVR* poseVR = Game::instance.GetVR();
+		bool bPoseGripChanged;
+		bool bPoseGripping = poseVR && poseVR->GetBoolInput(TwoHandGrip, bPoseGripChanged);
+		if (Game::instance.c_ToggleGrip->Value())
+		{
+			if (bPoseGripChanged && bPoseGripping)
+			{
+				bWasPoseGripping ^= true;
+			}
+			bPoseGripping = bWasPoseGripping;
+		}
+		Game::instance.bUseOneHandedPose = Game::instance.c_OffHandPoseForOneHanded->Value()
+			&& bPoseGripping;
 		return;
 	}
+
+	Game::instance.bUseOneHandedPose = false;
 
 	IVR* vr = Game::instance.GetVR();
 

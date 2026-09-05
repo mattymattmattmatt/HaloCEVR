@@ -29,6 +29,9 @@ public:
 	// Called every rendered frame from Game::PreDrawFrame with whether a Halo
 	// menu is currently up.
 	void NotifyMenuVisible(bool bVisible);
+	// Double click of the right stick logs where the off hand is, relative to
+	// the weapon hand, so a per-weapon hold pose can be authored in game.
+	void UpdatePoseCapture();
 	bool GetCalculatedHandPositions(Matrix4& controllerTransform, Vector3& dominantHandPos, Vector3& offHand);
 	void CalculateSmoothedInput();
 
@@ -78,6 +81,9 @@ protected:
 		controls.SwitchGrenades = 0;
 	}
 	bool bGameplayInputLatched = false;
+	bool bWasPoseGripping = false;
+	bool bWasCapturePosePressed = false;
+	float poseCaptureClickTimer = 0.0f;
 	int gameplayInputGraceFrames = 0;
 
 	// Update Controls that rely on the distance between hands
@@ -182,6 +188,7 @@ protected:
 	
 	InputBindingID Recentre = 0;
 	InputBindingID TwoHandGrip = 0;
+	InputBindingID CapturePose = 0;
 
 	InputBindingID SwapWeaponHand = 0;
 	InputBindingID OffhandSwapWeaponHand = 0;

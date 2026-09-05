@@ -31,6 +31,8 @@ public:
 	// weaponHandler itself is protected; this exposes just the current weapon
 	// type, which other systems need for weapon-specific behaviour
 	WeaponType GetCurrentWeaponType() const { return weaponHandler.GetCachedWeaponType(); }
+	// The frame the weapon model is attached to; off hand poses are relative to it.
+	Matrix4 GetWeaponFrame() const { return weaponHandler.GetWeaponFrame(); }
 
 	// 1 just after leaving a vehicle, 0 when the exit camera blend is finished
 	float GetVehicleExitBlendT() const { return vehicleExitBlendT; }
@@ -116,6 +118,8 @@ public:
 
 	bool bNeedsRecentre = true;
 	bool bUseTwoHandAim = false;
+	// Off hand grip held on a one handed weapon: snap the off hand to its pose.
+	bool bUseOneHandedPose = false;
 	bool bLeftHanded = false;
 	// Set by the HUD toggle gesture, when true the floating UI layer is not drawn
 	bool bHideHUD = false;
@@ -315,6 +319,7 @@ public:
 	FloatProperty* c_WristHUDRadarUMax = nullptr;
 	FloatProperty* c_WristHUDRadarVMax = nullptr;
 	BoolProperty* c_DisableTwoHandForOneHanded = nullptr;
+	BoolProperty* c_OffHandPoseForOneHanded = nullptr;
 	BoolProperty* c_ThrowGrenadeOnRelease = nullptr;
 	BoolProperty* c_GrenadePunch = nullptr;
 	FloatProperty* c_GrenadePunchPower = nullptr;
