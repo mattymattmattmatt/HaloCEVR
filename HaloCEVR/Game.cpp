@@ -236,7 +236,13 @@ void Game::PreDrawFrame(struct Renderer* renderer, float deltaTime)
 
 	//CalcFPS(deltaTime);
 
-	vr->SetMouseVisibility(Helpers::IsMouseVisible());
+	const bool bMenuVisible = Helpers::IsMouseVisible();
+	vr->SetMouseVisibility(bMenuVisible);
+	// Latch here rather than in UpdateInputs: this runs every rendered frame,
+	// while Halo's input handler (and so InputHandler::UpdateInputs) does not
+	// necessarily run at all while the game is paused. Menu clicks arrive via
+	// UpdatePoses below for the same reason.
+	inputHandler.NotifyMenuVisible(bMenuVisible);
 	vr->UpdatePoses();
 
 	UpdateCrosshairAndScope();

@@ -94,6 +94,8 @@ void InputHandler::UpdateInputs(bool bInVehicle)
 
 	UpdateVirtualMouseButtons();
 
+	const bool bSuppressGameplay = ShouldSuppressGameplayInputs();
+
 	if (grenadePunchArmFrames > 0)
 	{
 		ObjectTable& objects = Helpers::GetObjectTable();
@@ -231,6 +233,11 @@ void InputHandler::UpdateInputs(bool bInVehicle)
 		ApplyImpulseBoolInput(Zoom);
 		ApplyBoolInput(Reload);
 
+		if (bSuppressGameplay)
+		{
+			SuppressGameplayInputs(controls);
+		}
+
 		Game::instance.bIsFiring = controls.Fire;
 	}
 	else
@@ -317,6 +324,11 @@ void InputHandler::UpdateInputs(bool bInVehicle)
 		ApplyBoolInput(Crouch);
 		ApplyImpulseBoolInput(Zoom);
 		ApplyBoolInput(Reload);
+
+		if (bSuppressGameplay)
+		{
+			SuppressGameplayInputs(controls);
+		}
 
 		Game::instance.bIsFiring = controls.Fire;
 	}
@@ -1601,9 +1613,77 @@ void InputHandler::SetMousePosition(int& x, int& y)
 void InputHandler::UpdateMouseInfo(MouseInfo* mouseInfo)
 {
 	// State is advanced once per frame by UpdateVirtualMouseButtons; this only
-	// stamps the result over whatever the real device reported.
-	mouseInfo->buttonState[0] = mouseDownState;
-	mouseInfo->buttonState2[0] = mouseReleaseEdge;
+	// stamps the result over whatever the real device reported, and only while
+	// the VR trigger is actually involved - otherwise a physical mouse click
+	// would be overwritten with zero and never register.
+	if (bMouseWasDown || mouseDownState || mouseReleaseEdge)
+	{
+		mouseInfo->buttonState[0] = mouseDownState;
+		mouseInfo->buttonState2[0] = mouseReleaseEdge;
+	}
+}
+
+void InputHandler::NotifyMenuVisible(bool bVisible)
+{
+	if (!bVisible)
+	{
+		return;
+	}
+
+	if (!bGameplayInputLatched)
+	{
+		Logger::log << "[Menu] Suppressing gameplay inputs" << std::endl;
+	}
+	bGameplayInputLatched = true;
+	// While the menu owns the overlay, SteamVR routes the trigger to it and the
+	// game's own Fire action reads as released. Without this window the latch
+	// sees "nothing held" on the frame the menu closes, clears itself, and the
+	// still-held trigger fires on the very next frame - the rocket into the
+	// wall on Resume.
+	gameplayInputGraceFrames = 20;
+}
+
+bool InputHandler::ShouldSuppressGameplayInputs()
+{
+	IVR* vr = Game::instance.GetVR();
+	if (!vr)
+	{
+		return false;
+	}
+
+	if (Helpers::IsMouseVisible())
+	{
+		NotifyMenuVisible(true);
+		return true;
+	}
+
+	// The menu has closed, but the press that closed it is usually still held.
+	// Keep swallowing until every gameplay button has actually been let go,
+	// and never trust a release seen inside the grace window.
+	if (bGameplayInputLatched)
+	{
+		if (gameplayInputGraceFrames > 0)
+		{
+			gameplayInputGraceFrames--;
+			return true;
+		}
+
+		const bool bStillHeld = vr->GetBoolInput(Fire) || vr->GetBoolInput(Jump)
+			|| vr->GetBoolInput(Melee) || vr->GetBoolInput(Grenade)
+			|| vr->GetBoolInput(Interact) || vr->GetBoolInput(Reload)
+			|| vr->GetBoolInput(Crouch) || vr->GetBoolInput(Flashlight)
+			|| vr->GetBoolInput(SwitchWeapons) || vr->GetBoolInput(SwitchGrenades);
+
+		if (bStillHeld)
+		{
+			return true;
+		}
+
+		bGameplayInputLatched = false;
+		Logger::log << "[Menu] Gameplay inputs restored" << std::endl;
+	}
+
+	return false;
 }
 
 void InputHandler::UpdateVirtualMouseButtons()
@@ -1614,23 +1694,22 @@ void InputHandler::UpdateVirtualMouseButtons()
 		return;
 	}
 
-	// Mirror exactly what Halo's own converter at halo+0x91BC0 does:
-	//   buttonState[i]  = frames held, capped at 255, zero when up
-	//   buttonState2[i] = 1 for the one frame a held button is released
-	// The UI dispatches a press from buttonState but only registers the click
-	// - and plays its sound - from the buttonState2 release edge.
-	if (vr->GetMouseDown())
+	// Present the trigger to Halo as a quick click rather than a held button.
+	// Halo's converter at halo+0x91BC0 counts frames held, and the UI acts on
+	// any non-zero value, so holding the trigger dispatches an activation every
+	// frame - which restarts the menu sound before it can be heard. Pulsing for
+	// a single frame matches what a real mouse click looks like.
+	const bool bDown = vr->GetMouseDown();
+	mouseDownState = (bDown && !bMouseWasDown) ? 1 : 0;
+	mouseReleaseEdge = (!bDown && bMouseWasDown) ? 1 : 0;
+	const bool bWasDown = bMouseWasDown;
+	bMouseWasDown = bDown;
+
+	// Say nothing unless this is our click, so a physical mouse still works
+	// normally when one is awake.
+	if (!bDown && !bWasDown)
 	{
-		if (mouseDownState < 255)
-		{
-			mouseDownState++;
-		}
-		mouseReleaseEdge = 0;
-	}
-	else
-	{
-		mouseReleaseEdge = mouseDownState != 0 ? 1 : 0;
-		mouseDownState = 0;
+		return;
 	}
 
 	// Halo only calls its UpdateMouseInfo (and so our hook) from a block gated

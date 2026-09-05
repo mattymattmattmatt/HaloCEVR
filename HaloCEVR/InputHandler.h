@@ -26,6 +26,9 @@ public:
 	// Drives the VR menu click directly, for when Halo skips its own mouse
 	// update because the physical mouse device has gone away.
 	void UpdateVirtualMouseButtons();
+	// Called every rendered frame from Game::PreDrawFrame with whether a Halo
+	// menu is currently up.
+	void NotifyMenuVisible(bool bVisible);
 	bool GetCalculatedHandPositions(Matrix4& controllerTransform, Vector3& dominantHandPos, Vector3& offHand);
 	void CalculateSmoothedInput();
 
@@ -55,6 +58,27 @@ protected:
 	void SnapshotGrenadePunchTargets(HaloID localID);
 	bool GrenadePunchHitValidTarget() const;
 	unsigned char UpdateCrouch();
+	// True while gameplay actions should be swallowed: any Halo menu is open,
+	// or a button pressed on that menu is still being held after it closed.
+	bool ShouldSuppressGameplayInputs();
+	template<typename T> void SuppressGameplayInputs(T& controls) const
+	{
+		// Everything that acts on the world. MenuForward/MenuBack are left
+		// alone so the menu itself stays navigable.
+		controls.Fire = 0;
+		controls.Melee = 0;
+		controls.Grenade = 0;
+		controls.Jump = 0;
+		controls.Interact = 0;
+		controls.Reload = 0;
+		controls.Flashlight = 0;
+		controls.Crouch = 0;
+		controls.Zoom = 0;
+		controls.SwitchWeapons = 0;
+		controls.SwitchGrenades = 0;
+	}
+	bool bGameplayInputLatched = false;
+	int gameplayInputGraceFrames = 0;
 
 	// Update Controls that rely on the distance between hands
 	void UpdateHandsProximity();
@@ -62,11 +86,15 @@ protected:
 	void UpdateTwoHandedHold(float handDistance, bool handsWithinSwapWeaponDistance);
 
 	char lastSnapState = 0;
+	// buttonState[0]: pulsed for one frame on press. Halo's UI dispatches an
+	// activation every frame this reads non-zero, so a trigger held for ten
+	// frames fires ten activations and retriggers the menu sound each time,
+	// leaving it inaudible. A real mouse click only lasts a frame or two.
 	unsigned char mouseDownState = 0;
-	// buttonState2[0]: set for the single frame a held button is released.
-	// Halo's UI treats that release edge as the completed click, so it drives
-	// the click sound - without it a press registers silently.
+	// buttonState2[0]: set for the single frame a held button is released,
+	// which is how Halo marks a completed click.
 	unsigned char mouseReleaseEdge = 0;
+	bool bMouseWasDown = false;
 
 	bool bHoldingMenu = false;
 	std::chrono::time_point<std::chrono::high_resolution_clock> menuHeldTime;
