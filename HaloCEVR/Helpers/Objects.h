@@ -184,7 +184,9 @@ struct UnitDynamicObject : public BaseDynamicObject
 	float N00000333; //0x02CC
 	float N00000334; //0x02D0
 	float N00000335; //0x02D4
-	char pad_02D8[70]; //0x02D8
+	char pad_02D8[68]; //0x02D8
+	int8_t currentGrenadeIndex; //0x031C  0 = frag, 1 = plasma
+	int8_t desiredGrenadeIndex; //0x031D
 	// Confirmed by observed testing: decrements by exactly 1 per real throw of the
 	// matching type, frozen while the other type is thrown, both start at the
 	// canonical Halo CE max of 4. Was previously the tail of pad_02D8[72].
@@ -243,4 +245,12 @@ namespace Helpers
 	BaseDynamicObject* GetDynamicObject(HaloID& ID);
 	bool GetLocalPlayerID(HaloID& OutID);
 	BaseDynamicObject* GetLocalPlayer();
+
+	// Spawn a map object (used to drop a live grenade projectile).
+	HaloID SpawnObject(HaloID tagID, const Vector3& position, HaloID parent);
+	bool FindGrenadeProjectileTag(int grenadeType, HaloID& outTag);
+	// Force a spawned grenade projectile to detonate like a chain-reaction nade.
+	// Pass startFuse=true on spawn (sets a 1-tick countdown). Later ticks should
+	// only refresh at-rest/arming flags so the countdown can actually expire.
+	void ArmProjectileDetonation(BaseDynamicObject* projectile, bool startFuse = true);
 }

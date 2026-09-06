@@ -49,6 +49,31 @@ public:
 	OFFSET(TabOutVideo3,          0x0c829c, "38 1D ?? ?? ?? ?? 74 29 0F BF 05 ?? ?? ?? ?? 3B C3 7E 0E");
 	OFFSET(CutsceneFPSCap,        0x0c9fb5, "b3 01 eb ?? 32 db 8b 2d ?? ?? ?? ?? 8d 4c");
 	OFFSET(CreateMouseDevice,     0x0919c0, "6a 17 ff 15 ?? ?? ?? ?? 85 c0 74 ?? 66 c7 05 ?? ?? ?? ?? 02 00");
+	// The "je" of a null check on the DirectInput mouse device pointer. When
+	// the device is null it jumps forward with edi still zeroed, straight into
+	// "fild dword ptr [edi]" - the halo+0x9731C segmentation fault.
+	OFFSET(MouseNullCheck,        0x097307, "74 13 a0 ?? ?? ?? ?? 84 c0 bf ?? ?? ?? ?? 75 05 bf");
+	// "push <MouseInfo*>" immediately before Halo's UpdateMouseInfo call. The
+	// pushed immediate is the address of the mouse state block, which we read
+	// back so we can write button state even when Halo skips this code.
+	OFFSET(MouseInfoPush,         0x09093d, "68 ?? ?? ?? ?? 8d 4c 24 18 e8");
+	// Menu click dispatcher. Reads buttonState[0] and raises the UI event, but
+	// only after checking the DirectInput mouse device is non-null - so with no
+	// mouse present the VR click is written and then never looked at. The "je"
+	// we patch is at +7.
+	OFFSET(MouseClickDispatch,    0x08f6a8, "a1 ?? ?? ?? ?? 85 c0 74 3c a0 ?? ?? ?? ?? 84 c0 75 33 a0");
+	// Second instance of the same null-mouse bug, hit when loading a save. Same
+	// shape as MouseNullCheck but via esi, and the dereference ("mov eax,[esi]"
+	// at halo+0x8CD27) is ~0x60 bytes past the jump. The "je" is at +2.
+	OFFSET(MouseNullCheck2,       0x08ccc0, "3b c3 74 13 a0 ?? ?? ?? ?? 84 c0 be ?? ?? ?? ?? 75 05 be");
+	// Third and last instance, via eax. Found by auditing every assignment of
+	// the mouse state pointer rather than waiting for it to crash. The "je" is
+	// at +10; the dereference it skips into is "mov ecx,[eax]" at halo+0x8F9E4.
+	OFFSET(MouseNullCheck3,       0x08f9c5, "8b 0d ?? ?? ?? ?? 33 c0 3b cd 74 13 a0 ?? ?? ?? ?? 84 c0 b8");
+	// Chimera create_object_query_sig / create_object_sig. Function entry is
+	// 6 / 24 bytes before the match (see chimera object.S).
+	OFFSET(CreateObjectQuery,     0x0f53a6, "53 8b 5c 24 0c 56 8b f0 33 c0");
+	OFFSET(CreateObject,          0x0f54c8, "56 83 ce ff 85 c9 57");
 	OFFSET(SetViewModelVisible,   0x092430, "51 8b 0d ?? ?? ?? ?? 66 83 f9 ff 74 ?? 8b 15 ?? ?? ?? ?? 56 0f bf f1");
 	OFFSET(TextureAlphaWrite,     0x11c9d1, "6a 01 6a 16 33 ?? 50 89 ?? ?? ?? ff 91 e4 00 00 00 a1 ?? ?? ?? ?? 8b 10 6a 07 68 a8 00 00 00 50 ff 92 e4 00 00 00 a1 ?? ?? ?? ?? 8b 08 6a 01 6a 1b 50");
 	OFFSET(TextAlphaWrite,        0x131b80, "a0 ?? ?? ?? ?? 84 c0 0f 84 ?? ?? ?? ?? 66 83 ?? ?? ?? ?? 00 01 0f 85 ?? ?? ?? ?? 53 55 56");

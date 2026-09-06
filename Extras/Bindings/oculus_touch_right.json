@@ -24,6 +24,15 @@
             "sources": [
                 {
                     "inputs": {
+                        "click": {
+                            "output": "/actions/default/in/CapturePose"
+                        }
+                    },
+                    "mode": "button",
+                    "path": "/user/hand/right/input/joystick"
+                },
+                {
+                    "inputs": {
                         "north": {
                             "output": "/actions/default/in/Jump"
                         },
@@ -182,6 +191,15 @@
             "haptics": [],
             "poses": [],
             "sources": [
+                {
+                    "inputs": {
+                        "click": {
+                            "output": "/actions/left handed/in/CapturePose"
+                        }
+                    },
+                    "mode": "button",
+                    "path": "/user/hand/right/input/joystick"
+                },
                 {
                     "inputs": {
                         "north": {

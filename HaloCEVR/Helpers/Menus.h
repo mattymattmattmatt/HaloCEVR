@@ -14,4 +14,6 @@ namespace Helpers
 	bool IsMouseVisible();
 	bool IsLoading();
 	bool IsCampaignLoading();
+	// Halo's mouse state block. Only valid once sig scanning has run.
+	MouseInfo* GetMouseInfo();
 }

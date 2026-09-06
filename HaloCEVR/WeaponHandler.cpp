@@ -8,7 +8,139 @@
 #include <algorithm>
 #include <cmath>
 #include <sstream>
+#include <fstream>
+#include <filesystem>
+#include <string>
 #include <iomanip>
+
+namespace
+{
+	// Poses live next to the config so they survive log truncation and can be
+	// hand edited or deleted. One line per weapon, 16 matrix floats.
+	const char* kPoseFile = "VR/poses/offhandposes.txt";
+
+	Matrix4 g_poses[16];
+	bool g_hasPose[16] = { false };
+	bool g_posesLoaded = false;
+
+	int PoseIndex(WeaponType type)
+	{
+		const int i = static_cast<int>(type);
+		return (i >= 0 && i < 16) ? i : -1;
+	}
+
+	void LoadPoses()
+	{
+		g_posesLoaded = true;
+
+		std::ifstream file(kPoseFile);
+		if (!file.is_open())
+		{
+			return;
+		}
+
+		std::string line;
+		while (std::getline(file, line))
+		{
+			std::istringstream stream(line);
+			std::string name;
+			if (!(stream >> name) || name.empty() || name[0] == '#')
+			{
+				continue;
+			}
+
+			float m[16];
+			bool bOk = true;
+			for (int i = 0; i < 16 && bOk; i++)
+			{
+				bOk = static_cast<bool>(stream >> m[i]);
+			}
+			if (!bOk)
+			{
+				continue;
+			}
+
+			for (int t = 0; t < 16; t++)
+			{
+				if (name == GetWeaponTypeName(static_cast<WeaponType>(t)))
+				{
+					g_poses[t] = Matrix4(m);
+					g_hasPose[t] = true;
+					Logger::log << "[HandPose] Loaded pose for " << name << std::endl;
+					break;
+				}
+			}
+		}
+	}
+
+	void SavePoses()
+	{
+		std::filesystem::create_directories("VR/poses");
+		std::ofstream file(kPoseFile, std::ios::trunc);
+		if (!file.is_open())
+		{
+			Logger::err << "[HandPose] Could not write " << kPoseFile << std::endl;
+			return;
+		}
+
+		file << "# Off hand hold poses, one line per weapon:" << std::endl;
+		file << "# <weapon> then 16 matrix floats (off hand in weapon hand space)." << std::endl;
+		file << "# Delete a line to drop that pose; recapture in game to overwrite." << std::endl;
+		for (int t = 0; t < 16; t++)
+		{
+			if (!g_hasPose[t]) continue;
+			file << GetWeaponTypeName(static_cast<WeaponType>(t));
+			const float* m = g_poses[t].get();
+			for (int i = 0; i < 16; i++)
+			{
+				file << " " << m[i];
+			}
+			file << std::endl;
+		}
+	}
+}
+
+void HandPose::Capture(WeaponType type, const Matrix4& delta)
+{
+	if (!g_posesLoaded) LoadPoses();
+
+	const int idx = PoseIndex(type);
+	if (idx < 0) return;
+
+	g_poses[idx] = delta;
+	g_hasPose[idx] = true;
+	SavePoses();
+}
+
+bool HandPose::Get(WeaponType type, Matrix4& outDelta)
+{
+	if (!g_posesLoaded) LoadPoses();
+
+	const int idx = PoseIndex(type);
+	if (idx < 0 || !g_hasPose[idx]) return false;
+
+	outDelta = g_poses[idx];
+	return true;
+}
+
+const char* GetWeaponTypeName(WeaponType type)
+{
+	switch (type)
+	{
+	case WeaponType::Pistol:         return "Pistol";
+	case WeaponType::AssaultRifle:   return "AssaultRifle";
+	case WeaponType::Shotgun:        return "Shotgun";
+	case WeaponType::RocketLauncher: return "RocketLauncher";
+	case WeaponType::Sniper:         return "Sniper";
+	case WeaponType::Flamethrower:   return "Flamethrower";
+	case WeaponType::PlasmaPistol:   return "PlasmaPistol";
+	case WeaponType::PlasmaRifle:    return "PlasmaRifle";
+	case WeaponType::PlasmaCannon:   return "PlasmaCannon";
+	case WeaponType::Needler:        return "Needler";
+	case WeaponType::FuelRod:        return "FuelRod";
+	default:                         return "Unknown";
+	}
+}
 
 // This is a working decomp of the game's original logic for updating the view model's skeleton
 // Only kept here for reference when working on the replacement function below
@@ -334,8 +466,27 @@ void WeaponHandler::UpdateViewModel(HaloID& id, Vector3* pos, Vector3* facing, V
 				// Skip VR hand tracking in 3DOF mode - use original weapon bone transforms
 				if (!Game::instance.bUse3DOFAiming)
 				{
+					Matrix4 poseDelta;
+					const bool bPosed = Game::instance.bUseOneHandedPose
+						&& HandPose::Get(cachedViewModel.weaponType, poseDelta);
+
 					// 6DOF MODE: VR hand tracking
-					if (!Game::instance.bUseTwoHandAim)
+					if (bPosed)
+					{
+						// offHand = weapon * delta, in headset space, then into
+						// game space exactly as the branch below does it. No
+						// angles and no axis conventions to get wrong.
+						Matrix4 poseTransform = GetWeaponFrame() * poseDelta;
+
+						Vector3 translation = poseTransform * Vector3(0.0f, 0.0f, 0.0f);
+						poseTransform.translate(-translation);
+						translation *= Game::instance.MetresToWorld(1.0f);
+						translation += *pos;
+						poseTransform.translate(translation);
+
+						MoveBoneToTransform(boneIndex, poseTransform, realTransforms, outBoneTransforms);
+					}
+					else if (!Game::instance.bUseTwoHandAim)
 					{
 						Matrix4 newTransform = Game::instance.GetVR()->GetControllerTransform(Game::instance.bLeftHanded ? ControllerRole::Right : ControllerRole::Left, true);
 						// Apply scale only to translation portion

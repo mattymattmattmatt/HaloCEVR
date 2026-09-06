@@ -55,6 +55,7 @@ public:
 	static void P_RemoveCinematicBars();
 
 	static void P_DontStealMouse();
+	static void P_FixNullMouseCrash();
 
 	static void SetCameraMatrices(struct Viewport* viewport, struct CameraFrustum* frustum, struct CameraRenderMatrices* crm, bool bDoProjection);
 

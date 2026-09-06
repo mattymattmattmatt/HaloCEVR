@@ -206,6 +206,16 @@ void OpenVR::OnGameFinishInit()
 {
 	VR_PROFILE_SCOPE(OpenVR_OnGameFinishInit);
 
+	// Init() bails early when VR_Init, the compositor or the overlay system
+	// fails (no headset, runtime not running), leaving these interfaces null.
+	// This function is still called, and the overlay calls below would then
+	// dereference null and kill the game rather than letting it run flat.
+	if (!vrSystem || !vrCompositor || !vrOverlay)
+	{
+		Logger::log << "[OpenVR] Skipping VR surface setup: OpenVR unavailable" << std::endl;
+		return;
+	}
+
 	HRESULT result = D3D11CreateDevice(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, 0, NULL, NULL, D3D11_SDK_VERSION, &d3dDevice, NULL, NULL);
 
 	if (FAILED(result))
@@ -1204,7 +1214,16 @@ void OpenVR::UpdateInputs()
 
 InputBindingID OpenVR::RegisterBoolInput(std::string set, std::string action)
 {
-	InputBindingID id;
+	// Init() returns early when VR_Init or the compositor fails (e.g. no
+	// headset connected), leaving vrInput null. Registration still runs, so
+	// without this guard the call below dereferences null and takes the whole
+	// game down instead of just running without VR input.
+	InputBindingID id = 0;
+	if (!vrInput)
+	{
+		Logger::log << "[OpenVR] Skipping input /actions/" << set << "/in/" << action << ": input system unavailable" << std::endl;
+		return id;
+	}
 	vr::EVRInputError err = vrInput->GetActionHandle(("/actions/" + set + "/in/" + action).c_str(), &id);
 	if (err != vr::VRInputError_None)
 	{
@@ -1219,7 +1238,16 @@ InputBindingID OpenVR::RegisterBoolInput(std::string set, std::string action)
 
 InputBindingID OpenVR::RegisterVector2Input(std::string set, std::string action)
 {
-	InputBindingID id;
+	// Init() returns early when VR_Init or the compositor fails (e.g. no
+	// headset connected), leaving vrInput null. Registration still runs, so
+	// without this guard the call below dereferences null and takes the whole
+	// game down instead of just running without VR input.
+	InputBindingID id = 0;
+	if (!vrInput)
+	{
+		Logger::log << "[OpenVR] Skipping input /actions/" << set << "/in/" << action << ": input system unavailable" << std::endl;
+		return id;
+	}
 	vr::EVRInputError err = vrInput->GetActionHandle(("/actions/" + set + "/in/" + action).c_str(), &id);
 	if (err != vr::VRInputError_None)
 	{

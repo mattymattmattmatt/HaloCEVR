@@ -169,6 +169,16 @@
             "type": "boolean"
         },
         {
+            "name": "/actions/default/in/CapturePose",
+            "requirement": "optional",
+            "type": "boolean"
+        },
+        {
+            "name": "/actions/left handed/in/CapturePose",
+            "requirement": "optional",
+            "type": "boolean"
+        },
+        {
             "name": "/actions/default/in/TwoHandGrip",
             "requirement": "suggested",
             "type": "boolean"

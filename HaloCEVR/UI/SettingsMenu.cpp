@@ -337,7 +337,9 @@ void SettingsMenu::PopulateBasicSettingsTab()
 		"EnableWeaponHolsters",
 		"ShowCrosshair",
 		"ShowRoomCentre",
-		"RoomScaleMovement"
+		"RoomScaleMovement",
+		"ThrowGrenadeOnRelease",
+		"GrenadePunch"
 	};
 
 	// Clear out everything in case this is a refresh after reverting

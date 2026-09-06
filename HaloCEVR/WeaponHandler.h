@@ -21,6 +21,24 @@ enum class WeaponType
 	FuelRod
 };
 
+// Stable names for logging and for keying per-weapon config entries.
+const char* GetWeaponTypeName(WeaponType type);
+
+// Off hand hold poses for one handed weapons.
+//
+// A pose is just the off hand controller expressed in the weapon controller's
+// space: delta = inverse(weapon) * offHand, replayed as offHand = weapon * delta.
+// Storing the raw matrix rather than angles means there is no axis naming,
+// sign or handedness convention to get wrong at either end - the same approach
+// the existing two handed hold uses.
+namespace HandPose
+{
+	// Record the current off hand pose for a weapon and persist it.
+	void Capture(WeaponType type, const Matrix4& delta);
+	// Look up a stored pose. Loads from disk on first use.
+	bool Get(WeaponType type, Matrix4& outDelta);
+}
+
 class WeaponHandler
 {
 public:
@@ -50,6 +68,11 @@ public:
 
 	Vector3 localOffset;
 	Vector3 localRotation;
+
+	// The frame the weapon model hangs off - aim derived, not the raw
+	// controller. Off hand poses are stored relative to this so they stay
+	// attached to the gun rather than to where the hand happens to point.
+	Matrix4 GetWeaponFrame() const { return GetDominantHandTransform(); }
 
 protected:
 	void RelocatePlayer(HaloID& PlayerID, bool bUseOffHand = false);
