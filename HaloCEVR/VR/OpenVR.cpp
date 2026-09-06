@@ -358,11 +358,9 @@ void OpenVR::UpdatePoses()
 			break;
 		case vr::VREvent_MouseButtonDown:
 			bMouseDown = true;
-			Logger::log << "[OpenVR] Overlay mouse DOWN at " << mousePos.x << ", " << mousePos.y << std::endl;
 			break;
 		case vr::VREvent_MouseButtonUp:
 			bMouseDown = false;
-			Logger::log << "[OpenVR] Overlay mouse UP" << std::endl;
 			break;
 		case vr::VREvent_KeyboardClosed_Global:
 		case vr::VREvent_KeyboardDone:
@@ -1162,7 +1160,6 @@ void OpenVR::SetMouseVisibility(bool bIsVisible)
 		bMouseDown = false;
 	}
 
-	Logger::log << "[OpenVR] Menu overlay input method -> " << (bIsVisible ? "Mouse" : "None") << std::endl;
 	vrOverlay->SetOverlayInputMethod(uiOverlay, bIsVisible ? vr::VROverlayInputMethod_Mouse : vr::VROverlayInputMethod_None);
 	vrOverlay->SetOverlayWidthInMeters(uiOverlay, bIsVisible ? Game::instance.c_MenuOverlayScale->Value() : Game::instance.c_UIOverlayScale->Value());
 }

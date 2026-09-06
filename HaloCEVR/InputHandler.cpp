@@ -1708,10 +1708,6 @@ void InputHandler::NotifyMenuVisible(bool bVisible)
 		return;
 	}
 
-	if (!bGameplayInputLatched)
-	{
-		Logger::log << "[Menu] Suppressing gameplay inputs" << std::endl;
-	}
 	bGameplayInputLatched = true;
 	// While the menu owns the overlay, SteamVR routes the trigger to it and the
 	// game's own Fire action reads as released. Without this window the latch
@@ -1758,7 +1754,6 @@ bool InputHandler::ShouldSuppressGameplayInputs()
 		}
 
 		bGameplayInputLatched = false;
-		Logger::log << "[Menu] Gameplay inputs restored" << std::endl;
 	}
 
 	return false;
