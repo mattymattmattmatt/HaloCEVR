@@ -320,6 +320,7 @@ public:
 	FloatProperty* c_WristHUDRadarVMax = nullptr;
 	BoolProperty* c_DisableTwoHandForOneHanded = nullptr;
 	BoolProperty* c_OffHandPoseForOneHanded = nullptr;
+	BoolProperty* c_OffHandPoseCapture = nullptr;
 	BoolProperty* c_ThrowGrenadeOnRelease = nullptr;
 	BoolProperty* c_GrenadePunch = nullptr;
 	FloatProperty* c_GrenadePunchPower = nullptr;

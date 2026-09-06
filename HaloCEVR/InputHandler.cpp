@@ -1628,6 +1628,13 @@ void InputHandler::UpdateMouseInfo(MouseInfo* mouseInfo)
 
 void InputHandler::UpdatePoseCapture()
 {
+	// Recording is opt in. The trigger shares the zoom button on most setups,
+	// so leaving it live means a double tap mid fight silently rewrites a pose.
+	if (!Game::instance.c_OffHandPoseCapture || !Game::instance.c_OffHandPoseCapture->Value())
+	{
+		return;
+	}
+
 	IVR* vr = Game::instance.GetVR();
 	if (!vr)
 	{
