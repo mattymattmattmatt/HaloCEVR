@@ -2065,6 +2065,14 @@ void InputHandler::CalculateSmoothedInput()
 		userInput = Game::instance.c_WeaponSmoothingAmountTwoZoom->Value();
 	}
 
+	// Gripping the weapon with the off hand braces it. Additive so it stacks
+	// with the per zoom values rather than overriding them, and only while the
+	// grip is actually held on a one handed weapon.
+	if (Game::instance.bUseOneHandedPose && Game::instance.c_OffHandGripSmoothing)
+	{
+		userInput += Game::instance.c_OffHandGripSmoothing->Value();
+	}
+
 	float clampedValue = std::clamp(userInput, 0.0f, 2.0f);
 	if (clampedValue == 0.0f)
 	{
