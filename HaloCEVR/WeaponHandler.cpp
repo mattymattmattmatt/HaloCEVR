@@ -1390,6 +1390,67 @@ void WeaponHandler::RelocatePlayer(HaloID& PlayerID, bool bUseOffHand)
 	}
 }
 
+// Halo stores per trigger spread as an "error angle" pair of radians: shots
+// start at the minimum and bloom toward the maximum while you keep firing.
+// Confirmed in game - assault rifle 2.0 to 6.5 degrees, plasma rifle 0.25 to
+// 2.5, pistol 0.2 to 0.4.
+//
+// The triggers reflexive sits at +0x4FC in the weapon tag (count, pointer),
+// and a trigger is 276 bytes with maximum rate of fire bounds at +4/+8 and the
+// error angle bounds at +124/+128.
+namespace
+{
+	constexpr int kTriggersReflexive = 0x4FC;
+	constexpr int kTriggerSize = 276;
+	constexpr int kErrorAngleMin = 124;
+	constexpr int kErrorAngleMax = 128;
+	constexpr int kMaxSavedTriggers = 8;
+
+	struct SavedSpread
+	{
+		uint8_t* block = nullptr;
+		int count = 0;
+		float errorMin[kMaxSavedTriggers] = {};
+		float errorMax[kMaxSavedTriggers] = {};
+	};
+
+	SavedSpread g_savedSpread;
+
+	bool ReadableRange(const void* p, size_t bytes)
+	{
+		MEMORY_BASIC_INFORMATION mbi{};
+		if (!VirtualQuery(p, &mbi, sizeof(mbi)) || mbi.State != MEM_COMMIT) return false;
+		if (mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)) return false;
+		const uintptr_t end = reinterpret_cast<uintptr_t>(mbi.BaseAddress) + mbi.RegionSize;
+		return reinterpret_cast<uintptr_t>(p) + bytes <= end;
+	}
+
+	// Sanity check the block really is triggers before writing into it: rate of
+	// fire and error angle both have to be plausible, 120 bytes apart.
+	bool FindTriggers(Asset_Weapon* weapon, uint8_t*& outBlock, int& outCount)
+	{
+		if (!weapon || !weapon->WeaponData) return false;
+
+		uint8_t* tag = reinterpret_cast<uint8_t*>(weapon->WeaponData);
+		if (!ReadableRange(tag + kTriggersReflexive, 8)) return false;
+
+		const int32_t count = *reinterpret_cast<const int32_t*>(tag + kTriggersReflexive);
+		const uint32_t ptr = *reinterpret_cast<const uint32_t*>(tag + kTriggersReflexive + 4);
+		if (count < 1 || count > kMaxSavedTriggers || ptr < 0x10000) return false;
+
+		uint8_t* block = reinterpret_cast<uint8_t*>(ptr);
+		if (!ReadableRange(block, static_cast<size_t>(count) * kTriggerSize)) return false;
+
+		const float rof = *reinterpret_cast<const float*>(block + 4);
+		const float errMax = *reinterpret_cast<const float*>(block + kErrorAngleMax);
+		if (!(rof > 0.05f && rof < 200.0f) || !(errMax >= 0.0f && errMax < 0.5f)) return false;
+
+		outBlock = block;
+		outCount = count;
+		return true;
+	}
+}
+
 void WeaponHandler::PreFireWeapon(HaloID& WeaponID, short param2)
 {
 	BaseDynamicObject* Object = Helpers::GetDynamicObject(WeaponID);
@@ -1404,6 +1465,7 @@ void WeaponHandler::PreFireWeapon(HaloID& WeaponID, short param2)
 		HandleWeaponHaptics();
 		Game::instance.weaponHapticsConfig.WeaponFired(cachedViewModel.weaponType);
 		RelocatePlayer(PlayerID);
+		ApplyGrippedSpread(Object);
 	}
 }
 
@@ -1490,8 +1552,67 @@ inline void WeaponHandler::HandleWeaponHaptics() const
 	}
 }
 
+void WeaponHandler::ApplyGrippedSpread(BaseDynamicObject* weaponObj)
+{
+	g_savedSpread.block = nullptr;
+
+	FloatProperty* reduction = Game::instance.c_GrippedSpreadReduction;
+	if (!reduction || reduction->Value() <= 0.0f)
+	{
+		return;
+	}
+
+	// Two handed weapons brace through the normal two hand aim; one handed ones
+	// through the off hand pose grip.
+	if (!Game::instance.bUseTwoHandAim && !Game::instance.bUseOneHandedPose)
+	{
+		return;
+	}
+
+	uint8_t* block = nullptr;
+	int count = 0;
+	if (!weaponObj || !FindTriggers(Helpers::GetTypedAsset<Asset_Weapon>(weaponObj->tagID), block, count))
+	{
+		return;
+	}
+
+	const float scale = 1.0f - std::clamp(reduction->Value(), 0.0f, 1.0f);
+
+	g_savedSpread.block = block;
+	g_savedSpread.count = count;
+	for (int i = 0; i < count; i++)
+	{
+		float* errMin = reinterpret_cast<float*>(block + i * kTriggerSize + kErrorAngleMin);
+		float* errMax = reinterpret_cast<float*>(block + i * kTriggerSize + kErrorAngleMax);
+		g_savedSpread.errorMin[i] = *errMin;
+		g_savedSpread.errorMax[i] = *errMax;
+		*errMin *= scale;
+		*errMax *= scale;
+	}
+}
+
+void WeaponHandler::RestoreGrippedSpread()
+{
+	if (!g_savedSpread.block)
+	{
+		return;
+	}
+
+	// Put the tag back immediately: it is shared with every marine and elite
+	// carrying the same weapon, so it must only ever be modified for the
+	// duration of the player's own shot.
+	for (int i = 0; i < g_savedSpread.count; i++)
+	{
+		*reinterpret_cast<float*>(g_savedSpread.block + i * kTriggerSize + kErrorAngleMin) = g_savedSpread.errorMin[i];
+		*reinterpret_cast<float*>(g_savedSpread.block + i * kTriggerSize + kErrorAngleMax) = g_savedSpread.errorMax[i];
+	}
+	g_savedSpread.block = nullptr;
+}
+
 void WeaponHandler::PostFireWeapon(HaloID& weaponID, short param2)
 {
+	RestoreGrippedSpread();
+
 	// Restore state after firing the weapon
 	if (weaponFiredPlayer)
 	{

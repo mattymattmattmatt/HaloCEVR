@@ -74,6 +74,11 @@ public:
 	// attached to the gun rather than to where the hand happens to point.
 	Matrix4 GetWeaponFrame() const { return GetDominantHandTransform(); }
 
+	// Tighten the weapon's spread for the duration of the player's own shot
+	// while it is braced, then put the tag straight back.
+	void ApplyGrippedSpread(struct BaseDynamicObject* weaponObj);
+	void RestoreGrippedSpread();
+
 protected:
 	void RelocatePlayer(HaloID& PlayerID, bool bUseOffHand = false);
 

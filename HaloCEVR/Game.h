@@ -322,6 +322,7 @@ public:
 	BoolProperty* c_OffHandPoseForOneHanded = nullptr;
 	BoolProperty* c_OffHandPoseCapture = nullptr;
 	FloatProperty* c_OffHandGripSmoothing = nullptr;
+	FloatProperty* c_GrippedSpreadReduction = nullptr;
 	BoolProperty* c_ThrowGrenadeOnRelease = nullptr;
 	BoolProperty* c_GrenadePunch = nullptr;
 	FloatProperty* c_GrenadePunchPower = nullptr;
