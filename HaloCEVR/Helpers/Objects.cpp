@@ -75,33 +75,6 @@ bool Helpers::FindGrenadeProjectileTag(int grenadeType, HaloID& outTag)
 	return FindGrenadeTag(grenadeType, "proj", "jorp", outTag);
 }
 
-void Helpers::HoldObject(BaseDynamicObject* object, const Vector3& position, const Vector3& facing, const Vector3& up, float scale)
-{
-	if (!object)
-	{
-		return;
-	}
-
-	// A dropped grenade is a pickup, and this one sits permanently inside the
-	// player's pickup radius - which handed out unlimited grenades. Pickup is a
-	// collision test, so turning collision off stops it being collected, and
-	// stops it blocking shots or shoving the player around.
-	uint16_t objFlags = static_cast<uint16_t>(object->N0000025F);
-	objFlags |= static_cast<uint16_t>(ObjectProperties::NoCollision);
-	objFlags |= static_cast<uint16_t>(ObjectProperties::NoGravity);
-	object->N0000025F = static_cast<ObjectProperties>(objFlags);
-
-	object->position = position;
-	object->centre = position;
-	object->velocity = Vector3(0.0f, 0.0f, 0.0f);
-	object->facingDir = facing;
-	object->upDirection = up;
-	object->rotVelPitch = 0.0f;
-	object->rotVelYaw = 0.0f;
-	object->rotVelRoll = 0.0f;
-	object->scale = scale;
-}
-
 bool Helpers::FindGrenadeTag(int grenadeType, const char* group, const char* groupReversed, HaloID& outTag)
 {
 	outTag.index = 0xFFFF;
