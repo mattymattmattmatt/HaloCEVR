@@ -324,7 +324,6 @@ void Game::PreDrawFrame(struct Renderer* renderer, float deltaTime)
 	}
 
 	DrawGrenadeArc();
-	UpdateHeldGrenade();
 	DrawGrenadePunchFx();
 
 	UpdateGrenadeVelocityScan();
@@ -1219,6 +1218,10 @@ void Game::UpdateViewModel(HaloID& id, Vector3* pos, Vector3* facing, Vector3* u
 {
 	VR_PROFILE_SCOPE(Game_UpdateViewModel);
 	weaponHandler.UpdateViewModel(id, pos, facing, up, BoneTransforms, OutBoneTransforms);
+
+	// Placed here rather than in PreDrawFrame: this runs as the frame is drawn,
+	// which is why the weapon and hands do not trail behind the controllers.
+	UpdateHeldGrenade();
 
 #define PLASMA_EYE_DEBUG 0
 #if PLASMA_EYE_DEBUG
