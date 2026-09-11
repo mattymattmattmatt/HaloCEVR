@@ -11,6 +11,7 @@
 #include <fstream>
 #include <filesystem>
 #include <string>
+#include <map>
 #include <iomanip>
 
 namespace
@@ -19,15 +20,8 @@ namespace
 	// hand edited or deleted. One line per weapon, 16 matrix floats.
 	const char* kPoseFile = "VR/poses/offhandposes.txt";
 
-	Matrix4 g_poses[16];
-	bool g_hasPose[16] = { false };
+	std::map<std::string, Matrix4> g_poses;
 	bool g_posesLoaded = false;
-
-	int PoseIndex(WeaponType type)
-	{
-		const int i = static_cast<int>(type);
-		return (i >= 0 && i < 16) ? i : -1;
-	}
 
 	void LoadPoses()
 	{
@@ -60,16 +54,8 @@ namespace
 				continue;
 			}
 
-			for (int t = 0; t < 16; t++)
-			{
-				if (name == GetWeaponTypeName(static_cast<WeaponType>(t)))
-				{
-					g_poses[t] = Matrix4(m);
-					g_hasPose[t] = true;
-					Logger::log << "[HandPose] Loaded pose for " << name << std::endl;
-					break;
-				}
-			}
+			g_poses[name] = Matrix4(m);
+			Logger::log << "[HandPose] Loaded pose for " << name << std::endl;
 		}
 	}
 
@@ -83,14 +69,13 @@ namespace
 			return;
 		}
 
-		file << "# Off hand hold poses, one line per weapon:" << std::endl;
-		file << "# <weapon> then 16 matrix floats (off hand in weapon hand space)." << std::endl;
+		file << "# Off hand hold poses, one line per entry:" << std::endl;
+		file << "# <name> then 16 matrix floats (held item in hand space)." << std::endl;
 		file << "# Delete a line to drop that pose; recapture in game to overwrite." << std::endl;
-		for (int t = 0; t < 16; t++)
+		for (const auto& entry : g_poses)
 		{
-			if (!g_hasPose[t]) continue;
-			file << GetWeaponTypeName(static_cast<WeaponType>(t));
-			const float* m = g_poses[t].get();
+			file << entry.first;
+			const float* m = entry.second.get();
 			for (int i = 0; i < 16; i++)
 			{
 				file << " " << m[i];
@@ -100,26 +85,24 @@ namespace
 	}
 }
 
-void HandPose::Capture(WeaponType type, const Matrix4& delta)
+void HandPose::Capture(const char* name, const Matrix4& delta)
 {
 	if (!g_posesLoaded) LoadPoses();
+	if (!name || !*name) return;
 
-	const int idx = PoseIndex(type);
-	if (idx < 0) return;
-
-	g_poses[idx] = delta;
-	g_hasPose[idx] = true;
+	g_poses[name] = delta;
 	SavePoses();
 }
 
-bool HandPose::Get(WeaponType type, Matrix4& outDelta)
+bool HandPose::Get(const char* name, Matrix4& outDelta)
 {
 	if (!g_posesLoaded) LoadPoses();
+	if (!name || !*name) return false;
 
-	const int idx = PoseIndex(type);
-	if (idx < 0 || !g_hasPose[idx]) return false;
+	auto it = g_poses.find(name);
+	if (it == g_poses.end()) return false;
 
-	outDelta = g_poses[idx];
+	outDelta = it->second;
 	return true;
 }
 
@@ -468,7 +451,7 @@ void WeaponHandler::UpdateViewModel(HaloID& id, Vector3* pos, Vector3* facing, V
 				{
 					Matrix4 poseDelta;
 					const bool bPosed = Game::instance.bUseOneHandedPose
-						&& HandPose::Get(cachedViewModel.weaponType, poseDelta);
+						&& HandPose::Get(GetWeaponTypeName(cachedViewModel.weaponType), poseDelta);
 
 					// 6DOF MODE: VR hand tracking
 					if (bPosed)

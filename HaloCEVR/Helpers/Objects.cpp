@@ -211,6 +211,65 @@ HaloID Helpers::SpawnObject(HaloID tagID, const Vector3& position, HaloID parent
 	return result;
 }
 
+void Helpers::HoldProjectile(BaseDynamicObject* projectile, const Vector3& position)
+{
+	if (!projectile || projectile->N0000027E != ObjectType::PROJECTILE)
+	{
+		return;
+	}
+
+	// Object AT_REST skips projectile simulation entirely. That is what made
+	// the first grenade punch attempt hang in mid air with its plasma or smoke
+	// still playing - undesirable then, exactly the effect wanted here.
+	uint16_t objFlags = static_cast<uint16_t>(projectile->N0000025F);
+	objFlags |= static_cast<uint16_t>(ObjectProperties::Stationary);
+	projectile->N0000025F = static_cast<ObjectProperties>(objFlags);
+
+	projectile->position = position;
+	projectile->velocity = Vector3(0.0f, 0.0f, 0.0f);
+
+	uint8_t* raw = reinterpret_cast<uint8_t*>(projectile);
+
+	// Frozen in time, and explicitly not at rest, so the fuse never starts.
+	uint32_t projFlags = *reinterpret_cast<uint32_t*>(raw + 0x22C);
+	projFlags |= (1u << 3);
+	projFlags &= ~(1u << 4);
+	projFlags &= ~(1u << 5);
+	*reinterpret_cast<uint32_t*>(raw + 0x22C) = projFlags;
+
+	// Keep the countdown pinned well away from expiry and the arming clock at
+	// zero, so nothing can cook even if a frame is missed.
+	*reinterpret_cast<float*>(raw + 0x244) = 10.0f;
+	*reinterpret_cast<float*>(raw + 0x248) = 0.0f;
+}
+
+void Helpers::DespawnProjectile(BaseDynamicObject* projectile)
+{
+	if (!projectile || projectile->N0000027E != ObjectType::PROJECTILE)
+	{
+		return;
+	}
+
+	uint8_t* raw = reinterpret_cast<uint8_t*>(projectile);
+
+	// 1 = disappear rather than explode, then unfreeze and expire the fuse so
+	// the engine cleans it up on its own terms instead of us freeing anything.
+	*reinterpret_cast<uint16_t*>(raw + 0x230) = 1;
+
+	uint32_t projFlags = *reinterpret_cast<uint32_t*>(raw + 0x22C);
+	projFlags &= ~(1u << 3);
+	projFlags |= (1u << 4);
+	projFlags |= (1u << 5);
+	*reinterpret_cast<uint32_t*>(raw + 0x22C) = projFlags;
+
+	uint16_t objFlags = static_cast<uint16_t>(projectile->N0000025F);
+	objFlags &= ~static_cast<uint16_t>(ObjectProperties::Stationary);
+	projectile->N0000025F = static_cast<ObjectProperties>(objFlags);
+
+	*reinterpret_cast<float*>(raw + 0x244) = 1.0f / 30.0f;
+	*reinterpret_cast<float*>(raw + 0x248) = 10.0f;
+}
+
 void Helpers::ArmProjectileDetonation(BaseDynamicObject* projectile, bool startFuse)
 {
 	if (!projectile)

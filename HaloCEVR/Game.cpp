@@ -324,6 +324,7 @@ void Game::PreDrawFrame(struct Renderer* renderer, float deltaTime)
 	}
 
 	DrawGrenadeArc();
+	UpdateHeldGrenade();
 	DrawGrenadePunchFx();
 
 	UpdateGrenadeVelocityScan();
@@ -750,6 +751,145 @@ void Game::DrawGrenadeArc()
 
 		pos = nextPos;
 	}
+}
+
+// Resolve our held grenade object, if it is still alive. Slots get recycled,
+// so the datum id has to match too, not just the index.
+static BaseDynamicObject* GetLiveObject(const HaloID& id)
+{
+	if (id.index == 0xFFFF)
+	{
+		return nullptr;
+	}
+
+	ObjectTable& objects = Helpers::GetObjectTable();
+	if (!objects.elements || id.index >= objects.currentSize)
+	{
+		return nullptr;
+	}
+	if (objects.elements[id.index].id != id.id)
+	{
+		return nullptr;
+	}
+
+	return objects.elements[id.index].dynamicObject;
+}
+
+const char* Game::GetHeldGrenadePoseName() const
+{
+	return heldGrenadeType == 1 ? "GrenadePlasma" : "GrenadeFrag";
+}
+
+void Game::ClearHeldGrenade()
+{
+	BaseDynamicObject* grenade = GetLiveObject(heldGrenadeID);
+	if (grenade)
+	{
+		Helpers::DespawnProjectile(grenade);
+	}
+
+	heldGrenadeID.index = 0xFFFF;
+	heldGrenadeID.id = 0xFFFF;
+	heldGrenadeType = -1;
+}
+
+void Game::UpdateHeldGrenade()
+{
+	VR_PROFILE_SCOPE(Game_UpdateHeldGrenade);
+
+	const bool bWanted = c_ShowHeldGrenade && c_ShowHeldGrenade->Value()
+		&& !bInVehicle
+		&& inputHandler.IsGrenadeHeld()
+		&& weaponHandler.HasAnyGrenades()
+		&& !Helpers::IsLoading();
+
+	if (!bWanted)
+	{
+		ClearHeldGrenade();
+		return;
+	}
+
+	HaloID playerID;
+	UnitDynamicObject* player = Helpers::GetLocalPlayerID(playerID)
+		? static_cast<UnitDynamicObject*>(Helpers::GetDynamicObject(playerID))
+		: nullptr;
+	if (!player)
+	{
+		ClearHeldGrenade();
+		return;
+	}
+
+	// Show whichever type would actually be thrown, falling back to the other
+	// if the selected one is empty.
+	int grenadeType = player->currentGrenadeIndex;
+	if (grenadeType == 1 && player->plasmaGrenadeCount <= 0)
+	{
+		grenadeType = 0;
+	}
+	else if (grenadeType != 1 && player->fragGrenadeCount <= 0)
+	{
+		grenadeType = 1;
+	}
+
+	Vector3 handPos, handAim;
+	if (!weaponHandler.GetGrenadeThrowPose(handPos, handAim))
+	{
+		ClearHeldGrenade();
+		return;
+	}
+
+	BaseDynamicObject* grenade = GetLiveObject(heldGrenadeID);
+
+	// Respawn if it went away, or if the player switched grenade type.
+	if (!grenade || grenadeType != heldGrenadeType)
+	{
+		if (grenade)
+		{
+			ClearHeldGrenade();
+		}
+
+		HaloID grenadeTag;
+		if (!Helpers::FindGrenadeProjectileTag(grenadeType, grenadeTag))
+		{
+			return;
+		}
+
+		HaloID noParent{ 0xFFFF, 0xFFFF };
+		const HaloID spawned = Helpers::SpawnObject(grenadeTag, handPos, noParent);
+		grenade = Helpers::GetDynamicObject(const_cast<HaloID&>(spawned));
+		if (!grenade)
+		{
+			return;
+		}
+
+		heldGrenadeID = spawned;
+		heldGrenadeType = grenadeType;
+	}
+
+	// Re-park it every frame: it follows the hand, and the frozen flags are
+	// refreshed so nothing can start the fuse.
+	Vector3 posedPos = handPos;
+	Matrix4 poseDelta;
+	if (HandPose::Get(GetHeldGrenadePoseName(), poseDelta))
+	{
+		// Same convention as the weapon poses: the stored delta is applied to
+		// the throwing hand, then taken to world the way the throw pose is.
+		const ControllerRole throwHand = bLeftHanded ? ControllerRole::Right : ControllerRole::Left;
+		const Matrix4 posed = GetVR()->GetControllerTransform(throwHand, true) * poseDelta;
+
+		posedPos = Helpers::GetCamera().position
+			+ (posed * Vector3(0.0f, 0.0f, 0.0f)) * MetresToWorld(1.0f);
+
+		grenade->facingDir = posed.getLeftAxis();
+		grenade->upDirection = posed.getUpAxis();
+	}
+
+	// Stop it tumbling; a parked grenade should hold the pose it is given.
+	grenade->rotVelPitch = 0.0f;
+	grenade->rotVelYaw = 0.0f;
+	grenade->rotVelRoll = 0.0f;
+
+	Helpers::HoldProjectile(grenade, posedPos);
 }
 
 void Game::BeginGrenadePunchFx(const Vector3& worldPos)
@@ -1723,6 +1863,7 @@ void Game::SetupConfigs()
 	c_OffHandPoseCapture = config.RegisterBool("OffHandPoseCapture", "Allow recording off hand hold poses in game: double click the right stick (or double press zoom) while holding a one handed weapon to overwrite that weapon's pose in VR/poses/offhandposes.txt. Off by default so a stray double press cannot destroy a pose you are happy with. Turn on only while authoring", false);
 	c_OffHandGripSmoothing = config.RegisterFloat("OffHandGripSmoothing", "Extra aim smoothing while the off hand grip is held on a one handed weapon, on top of whatever the current zoom level uses. Braces the shot the way a two handed hold would, at the cost of the aim lagging your hand slightly. 0 disables it and changes nothing (0 to 2, try around 0.3)", 0.0f);
 	c_GrippedSpreadReduction = config.RegisterFloat("GrippedSpreadReduction", "Reduce weapon spread while braced - two hand aiming a two handed weapon, or holding the off hand grip on a one handed one. 0.5 halves the spread cone, 1 makes it pinpoint, 0 changes nothing. Only applies to your own shots; enemies using the same weapon are unaffected. Assault rifle is 2 to 6.5 degrees stock, plasma rifle 0.25 to 2.5", 0.0f);
+	c_ShowHeldGrenade = config.RegisterBool("ShowHeldGrenade", "Show a live grenade in your throwing hand while the grenade button is held, matching the type you have selected - a smoking frag or a glowing plasma, the way it looks once thrown. Purely cosmetic: it cannot detonate, cannot be shot, and vanishes when you throw or let go", true);
 	c_ThrowGrenadeOnRelease = config.RegisterBool("ThrowGrenadeOnRelease", "Throw the grenade when the grenade button is released, rather than immediately when pressed. Lets you hold the button while winding up the throw motion", false);
 	c_GrenadePunch = config.RegisterBool("GrenadePunch", "While ThrowGrenadeOnRelease is on, hold the grenade button and land an off-hand melee on a character or vehicle to detonate your currently selected grenade (frag or plasma) at the punch. Weapon-hand melee is unchanged. Uses one grenade of that type. Real in-game explosion, does not hurt you, still deals melee damage", false);
 	c_GrenadePunchPower = config.RegisterFloat("GrenadePunchPower", "Explosion strength multiplier for the grenade punch. 1 is a single grenade, 2 stacks two blasts at the same spot, and so on, up to 8. Still only spends one grenade", 1.0f);

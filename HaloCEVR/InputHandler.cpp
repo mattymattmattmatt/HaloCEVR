@@ -1672,6 +1672,27 @@ void InputHandler::UpdatePoseCapture()
 	const ControllerRole weaponHand = GetWeaponHand();
 	const ControllerRole offHand = GetOffHand();
 
+	// Holding the grenade button poses the grenade instead of the off hand:
+	// put the free hand where the grenade should sit and double click.
+	if (IsGrenadeHeld())
+	{
+		const Matrix4 throwHand = vr->GetControllerTransform(offHand, true);
+		const Matrix4 pointerHand = vr->GetControllerTransform(weaponHand, true);
+
+		Matrix4 throwInverse = throwHand;
+		throwInverse.invertAffine();
+
+		const char* poseName = Game::instance.GetHeldGrenadePoseName();
+		HandPose::Capture(poseName, throwInverse * pointerHand);
+
+		Logger::log << "[PoseCapture] saved " << poseName
+			<< " -> VR/poses/offhandposes.txt" << std::endl;
+
+		vr->TriggerHapticVibration(offHand, 0.0f, 0.06f, 120.0f, 0.6f);
+		vr->TriggerHapticVibration(weaponHand, 0.0f, 0.06f, 120.0f, 0.6f);
+		return;
+	}
+
 	// Reference the frame the weapon model is attached to, and capture the off
 	// hand through the same call that positions its mesh. GetControllerTransform
 	// is the raw pose times the wrist bone matrix (axis remap plus a 180 degree
@@ -1688,7 +1709,7 @@ void InputHandler::UpdatePoseCapture()
 	const Matrix4 delta = weaponInverse * offHandTransform;
 
 	const WeaponType type = Game::instance.GetCurrentWeaponType();
-	HandPose::Capture(type, delta);
+	HandPose::Capture(GetWeaponTypeName(type), delta);
 
 	const Vector3 localPos = delta * Vector3(0.0f, 0.0f, 0.0f);
 	Logger::log << "[PoseCapture] saved " << GetWeaponTypeName(type)

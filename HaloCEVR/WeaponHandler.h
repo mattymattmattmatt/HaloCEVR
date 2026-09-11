@@ -33,10 +33,12 @@ const char* GetWeaponTypeName(WeaponType type);
 // the existing two handed hold uses.
 namespace HandPose
 {
-	// Record the current off hand pose for a weapon and persist it.
-	void Capture(WeaponType type, const Matrix4& delta);
+	// Keyed by name rather than weapon type, so grenades can use the same
+	// store: weapons key on their type name, grenades on GrenadeFrag or
+	// GrenadePlasma.
+	void Capture(const char* name, const Matrix4& delta);
 	// Look up a stored pose. Loads from disk on first use.
-	bool Get(WeaponType type, Matrix4& outDelta);
+	bool Get(const char* name, Matrix4& outDelta);
 }
 
 class WeaponHandler

@@ -42,6 +42,12 @@ public:
 	float liveAdjustStep = 0.01f;
 	// Draws the predicted grenade trajectory while the grenade button is held
 	void DrawGrenadeArc();
+	// Shows a live frag or plasma grenade in the throwing hand while the
+	// grenade button is held.
+	void UpdateHeldGrenade();
+	void ClearHeldGrenade();
+	// Pose store key for the grenade currently selected.
+	const char* GetHeldGrenadePoseName() const;
 	void DrawGrenadePunchFx();
 	void BeginGrenadePunchFx(const Vector3& worldPos);
 	static Game instance;
@@ -246,6 +252,8 @@ protected:
 
 	bool bIgnoreNextRoomScaleMovement = false;
 
+	HaloID heldGrenadeID{ 0xFFFF, 0xFFFF };
+	int heldGrenadeType = -1;
 	float grenadePunchFxTimer = 0.0f;
 	Vector3 grenadePunchFxPos = Vector3(0.0f, 0.0f, 0.0f);
 
@@ -323,6 +331,7 @@ public:
 	BoolProperty* c_OffHandPoseCapture = nullptr;
 	FloatProperty* c_OffHandGripSmoothing = nullptr;
 	FloatProperty* c_GrippedSpreadReduction = nullptr;
+	BoolProperty* c_ShowHeldGrenade = nullptr;
 	BoolProperty* c_ThrowGrenadeOnRelease = nullptr;
 	BoolProperty* c_GrenadePunch = nullptr;
 	FloatProperty* c_GrenadePunchPower = nullptr;

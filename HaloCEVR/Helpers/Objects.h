@@ -253,4 +253,9 @@ namespace Helpers
 	// Pass startFuse=true on spawn (sets a 1-tick countdown). Later ticks should
 	// only refresh at-rest/arming flags so the countdown can actually expire.
 	void ArmProjectileDetonation(BaseDynamicObject* projectile, bool startFuse = true);
+	// The inverse: park a projectile at a position with its effects running but
+	// its fuse and physics stopped, for showing a live grenade in hand.
+	void HoldProjectile(BaseDynamicObject* projectile, const Vector3& position);
+	// Remove a held projectile without an explosion.
+	void DespawnProjectile(BaseDynamicObject* projectile);
 }
