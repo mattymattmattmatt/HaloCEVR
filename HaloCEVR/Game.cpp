@@ -868,21 +868,24 @@ void Game::UpdateHeldGrenade()
 
 	// Re-park it every frame: it follows the hand, and the frozen flags are
 	// refreshed so nothing can start the fuse.
-	Vector3 posedPos = handPos;
+	// Follow the hand's rotation as well as its position, so it reads as held
+	// rather than floating alongside. With no pose recorded the delta is
+	// identity, which puts it at the controller origin - the same point the
+	// throw pose uses, since that is derived from the same transform.
 	Matrix4 poseDelta;
-	if (HandPose::Get(GetHeldGrenadePoseName(), poseDelta))
+	if (!HandPose::Get(GetHeldGrenadePoseName(), poseDelta))
 	{
-		// Same convention as the weapon poses: the stored delta is applied to
-		// the throwing hand, then taken to world the way the throw pose is.
-		const ControllerRole throwHand = bLeftHanded ? ControllerRole::Right : ControllerRole::Left;
-		const Matrix4 posed = GetVR()->GetControllerTransform(throwHand, true) * poseDelta;
-
-		posedPos = Helpers::GetCamera().position
-			+ (posed * Vector3(0.0f, 0.0f, 0.0f)) * MetresToWorld(1.0f);
-
-		grenade->facingDir = posed.getLeftAxis();
-		grenade->upDirection = posed.getUpAxis();
+		poseDelta.identity();
 	}
+
+	const ControllerRole throwHand = bLeftHanded ? ControllerRole::Right : ControllerRole::Left;
+	const Matrix4 posed = GetVR()->GetControllerTransform(throwHand, true) * poseDelta;
+
+	const Vector3 posedPos = Helpers::GetCamera().position
+		+ (posed * Vector3(0.0f, 0.0f, 0.0f)) * MetresToWorld(1.0f);
+
+	grenade->facingDir = posed.getLeftAxis();
+	grenade->upDirection = posed.getUpAxis();
 
 	// Stop it tumbling; a parked grenade should hold the pose it is given.
 	grenade->rotVelPitch = 0.0f;
