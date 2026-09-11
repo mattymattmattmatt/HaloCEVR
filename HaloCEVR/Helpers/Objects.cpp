@@ -88,7 +88,6 @@ void Helpers::HoldObject(BaseDynamicObject* object, const Vector3& position, con
 	// stops it blocking shots or shoving the player around.
 	uint16_t objFlags = static_cast<uint16_t>(object->N0000025F);
 	objFlags |= static_cast<uint16_t>(ObjectProperties::NoCollision);
-	objFlags |= static_cast<uint16_t>(ObjectProperties::NoCollision2);
 	objFlags |= static_cast<uint16_t>(ObjectProperties::NoGravity);
 	object->N0000025F = static_cast<ObjectProperties>(objFlags);
 
@@ -260,7 +259,6 @@ void Helpers::HoldProjectile(BaseDynamicObject* projectile, const Vector3& posit
 	uint16_t objFlags = static_cast<uint16_t>(projectile->N0000025F);
 	objFlags &= ~static_cast<uint16_t>(ObjectProperties::Stationary);
 	objFlags |= static_cast<uint16_t>(ObjectProperties::NoCollision);
-	objFlags |= static_cast<uint16_t>(ObjectProperties::NoCollision2);
 	objFlags |= static_cast<uint16_t>(ObjectProperties::NoGravity);
 	projectile->N0000025F = static_cast<ObjectProperties>(objFlags);
 
