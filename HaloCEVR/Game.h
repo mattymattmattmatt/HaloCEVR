@@ -48,8 +48,6 @@ public:
 	void ClearHeldGrenade();
 	// Pose store key for the grenade currently selected.
 	const char* GetHeldGrenadePoseName() const;
-	void ToggleHeldGrenadePoseFreeze();
-	bool GetHeldGrenadeWorldTransform(Vector3& outPos, Vector3& outFacing, Vector3& outUp) const;
 	void DrawGrenadePunchFx();
 	void BeginGrenadePunchFx(const Vector3& worldPos);
 	static Game instance;
@@ -256,12 +254,6 @@ protected:
 
 	HaloID heldGrenadeID{ 0xFFFF, 0xFFFF };
 	int heldGrenadeType = -1;
-	// While posing, the grenade stops following so the hand can be moved
-	// around it and the offset captured.
-	bool bHeldGrenadePoseFrozen = false;
-	Vector3 heldGrenadeFrozenPos{ 0.0f, 0.0f, 0.0f };
-	Vector3 heldGrenadeFrozenFacing{ 1.0f, 0.0f, 0.0f };
-	Vector3 heldGrenadeFrozenUp{ 0.0f, 0.0f, 1.0f };
 	float grenadePunchFxTimer = 0.0f;
 	Vector3 grenadePunchFxPos = Vector3(0.0f, 0.0f, 0.0f);
 
@@ -341,6 +333,8 @@ public:
 	FloatProperty* c_GrippedSpreadReduction = nullptr;
 	BoolProperty* c_ShowHeldGrenade = nullptr;
 	FloatProperty* c_HeldGrenadeScale = nullptr;
+	Vector3Property* c_HeldGrenadeOffset = nullptr;
+	Vector3Property* c_HeldGrenadeRotation = nullptr;
 	BoolProperty* c_ThrowGrenadeOnRelease = nullptr;
 	BoolProperty* c_GrenadePunch = nullptr;
 	FloatProperty* c_GrenadePunchPower = nullptr;

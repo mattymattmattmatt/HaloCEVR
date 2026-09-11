@@ -1672,50 +1672,6 @@ void InputHandler::UpdatePoseCapture()
 	const ControllerRole weaponHand = GetWeaponHand();
 	const ControllerRole offHand = GetOffHand();
 
-	// Holding the grenade button poses the grenade instead of the off hand:
-	// put the free hand where the grenade should sit and double click.
-	if (IsGrenadeHeld())
-	{
-		// Two steps. The first click parks the grenade in mid air; move your
-		// hand to the grip you want and click again to record where the
-		// grenade sits relative to it. Posing against a fixed object beats
-		// trying to judge an offset while it chases your hand.
-		Vector3 frozenPos, frozenFacing, frozenUp;
-		if (!Game::instance.GetHeldGrenadeWorldTransform(frozenPos, frozenFacing, frozenUp))
-		{
-			Game::instance.ToggleHeldGrenadePoseFreeze();
-			vr->TriggerHapticVibration(offHand, 0.0f, 0.06f, 120.0f, 0.6f);
-			return;
-		}
-
-		// Rebuild the frozen grenade as a transform in the same space the hand
-		// is in, then express it relative to the hand.
-		const Vector3 localPos = (frozenPos - Helpers::GetCamera().position)
-			* Game::instance.WorldToMetres(1.0f);
-		const Vector3 third = frozenFacing.cross(frozenUp);
-		const float src[16] = {
-			frozenFacing.x, frozenFacing.y, frozenFacing.z, 0.0f,
-			frozenUp.x, frozenUp.y, frozenUp.z, 0.0f,
-			third.x, third.y, third.z, 0.0f,
-			localPos.x, localPos.y, localPos.z, 1.0f
-		};
-		const Matrix4 grenadeTransform(src);
-
-		Matrix4 handInverse = vr->GetControllerTransform(offHand, true);
-		handInverse.invertAffine();
-
-		const char* poseName = Game::instance.GetHeldGrenadePoseName();
-		HandPose::Capture(poseName, handInverse * grenadeTransform);
-		Game::instance.ToggleHeldGrenadePoseFreeze();
-
-		Logger::log << "[PoseCapture] saved " << poseName
-			<< " -> VR/poses/offhandposes.txt" << std::endl;
-
-		vr->TriggerHapticVibration(offHand, 0.0f, 0.06f, 120.0f, 0.6f);
-		vr->TriggerHapticVibration(weaponHand, 0.0f, 0.06f, 120.0f, 0.6f);
-		return;
-	}
-
 	// Reference the frame the weapon model is attached to, and capture the off
 	// hand through the same call that positions its mesh. GetControllerTransform
 	// is the raw pose times the wrist bone matrix (axis remap plus a 180 degree

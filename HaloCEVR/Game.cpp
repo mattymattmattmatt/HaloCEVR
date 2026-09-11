@@ -790,47 +790,6 @@ void Game::ClearHeldGrenade()
 		Helpers::HideProjectile(grenade);
 	}
 
-	bHeldGrenadePoseFrozen = false;
-}
-
-void Game::ToggleHeldGrenadePoseFreeze()
-{
-	BaseDynamicObject* grenade = GetLiveObject(heldGrenadeID);
-	if (!grenade)
-	{
-		Logger::log << "[HeldGrenade] freeze ignored: no live object (id "
-			<< heldGrenadeID << ")" << std::endl;
-		return;
-	}
-
-	bHeldGrenadePoseFrozen = !bHeldGrenadePoseFrozen;
-	if (bHeldGrenadePoseFrozen)
-	{
-		// Leave it exactly where it is so the hand can be moved around it.
-		heldGrenadeFrozenPos = grenade->position;
-		heldGrenadeFrozenFacing = grenade->facingDir;
-		heldGrenadeFrozenUp = grenade->upDirection;
-	}
-
-	// Read the scale back: if the engine is overwriting it, the size setting is
-	// being ignored and the field is not what we think it is.
-	Logger::log << "[HeldGrenade] frozen=" << (bHeldGrenadePoseFrozen ? "yes" : "no")
-		<< " scaleWanted=" << (c_HeldGrenadeScale ? c_HeldGrenadeScale->Value() : -1.0f)
-		<< " scaleReadBack=" << grenade->scale
-		<< std::endl;
-}
-
-bool Game::GetHeldGrenadeWorldTransform(Vector3& outPos, Vector3& outFacing, Vector3& outUp) const
-{
-	if (!bHeldGrenadePoseFrozen)
-	{
-		return false;
-	}
-
-	outPos = heldGrenadeFrozenPos;
-	outFacing = heldGrenadeFrozenFacing;
-	outUp = heldGrenadeFrozenUp;
-	return true;
 }
 
 void Game::UpdateHeldGrenade()
@@ -909,35 +868,37 @@ void Game::UpdateHeldGrenade()
 
 	// Re-park it every frame: it follows the hand, and the frozen flags are
 	// refreshed so nothing can start the fuse.
-	// Follow the hand's rotation as well as its position, so it reads as held
-	// rather than floating alongside. With no pose recorded the delta is
-	// identity, which puts it at the controller origin - the same point the
-	// throw pose uses, since that is derived from the same transform.
-	Matrix4 poseDelta;
-	if (!HandPose::Get(GetHeldGrenadePoseName(), poseDelta))
-	{
-		poseDelta.identity();
-	}
+	// Built from config rather than a captured pose: the model's resting
+	// orientation is not knowable up front, so these are tuned by eye. Config
+	// is hot reloaded, so they can be adjusted while looking at it.
+	const Vector3 offset = c_HeldGrenadeOffset ? c_HeldGrenadeOffset->Value() : Vector3(0.0f, 0.0f, 0.0f);
+	const Vector3 rot = c_HeldGrenadeRotation ? c_HeldGrenadeRotation->Value() : Vector3(0.0f, 0.0f, 0.0f);
 
-	Vector3 posedPos;
-	if (bHeldGrenadePoseFrozen)
-	{
-		// Parked for posing: hold station while the hand moves around it.
-		posedPos = heldGrenadeFrozenPos;
-		grenade->facingDir = heldGrenadeFrozenFacing;
-		grenade->upDirection = heldGrenadeFrozenUp;
-	}
-	else
-	{
-		const ControllerRole throwHand = bLeftHanded ? ControllerRole::Right : ControllerRole::Left;
-		const Matrix4 posed = GetVR()->GetControllerTransform(throwHand, true) * poseDelta;
+	Matrix4 delta;
+	delta.rotateX(rot.x);
+	delta.rotateY(rot.y);
+	delta.rotateZ(rot.z);
 
-		posedPos = Helpers::GetCamera().position
-			+ (posed * Vector3(0.0f, 0.0f, 0.0f)) * MetresToWorld(1.0f);
-
-		grenade->facingDir = posed.getLeftAxis();
-		grenade->upDirection = posed.getUpAxis();
+	// Put the offset in the hand's own frame rather than the rotated one, so
+	// turning the grenade does not also move it.
+	float deltaValues[16];
+	for (int i = 0; i < 16; i++)
+	{
+		deltaValues[i] = delta.get()[i];
 	}
+	deltaValues[12] = offset.x;
+	deltaValues[13] = offset.y;
+	deltaValues[14] = offset.z;
+	const Matrix4 posedDelta(deltaValues);
+
+	const ControllerRole throwHand = bLeftHanded ? ControllerRole::Right : ControllerRole::Left;
+	const Matrix4 posed = GetVR()->GetControllerTransform(throwHand, true) * posedDelta;
+
+	const Vector3 posedPos = Helpers::GetCamera().position
+		+ (posed * Vector3(0.0f, 0.0f, 0.0f)) * MetresToWorld(1.0f);
+
+	grenade->facingDir = posed.getLeftAxis();
+	grenade->upDirection = posed.getUpAxis();
 
 	// Stop it tumbling; a parked grenade should hold the pose it is given.
 	grenade->rotVelPitch = 0.0f;
@@ -1919,8 +1880,10 @@ void Game::SetupConfigs()
 	c_OffHandPoseCapture = config.RegisterBool("OffHandPoseCapture", "Allow recording off hand hold poses in game: double click the right stick (or double press zoom) while holding a one handed weapon to overwrite that weapon's pose in VR/poses/offhandposes.txt. Off by default so a stray double press cannot destroy a pose you are happy with. Turn on only while authoring", false);
 	c_OffHandGripSmoothing = config.RegisterFloat("OffHandGripSmoothing", "Extra aim smoothing while the off hand grip is held on a one handed weapon, on top of whatever the current zoom level uses. Braces the shot the way a two handed hold would, at the cost of the aim lagging your hand slightly. 0 disables it and changes nothing (0 to 2, try around 0.3)", 0.0f);
 	c_GrippedSpreadReduction = config.RegisterFloat("GrippedSpreadReduction", "Reduce weapon spread while braced - two hand aiming a two handed weapon, or holding the off hand grip on a one handed one. 0.5 halves the spread cone, 1 makes it pinpoint, 0 changes nothing. Only applies to your own shots; enemies using the same weapon are unaffected. Assault rifle is 2 to 6.5 degrees stock, plasma rifle 0.25 to 2.5", 0.0f);
-	c_ShowHeldGrenade = config.RegisterBool("ShowHeldGrenade", "Show a live grenade in your throwing hand while the grenade button is held, matching the type you have selected - a smoking frag or a glowing plasma, the way it looks once thrown. Purely cosmetic: it cannot detonate, cannot be shot, and vanishes when you throw or let go. Experimental - the world model does not honour scale and draws behind the hands", false);
+	c_ShowHeldGrenade = config.RegisterBool("ShowHeldGrenade", "Show a live grenade in your throwing hand while the grenade button is held, matching the type you have selected - a smoking frag or a glowing plasma, the way it looks once thrown. Purely cosmetic: it cannot detonate, cannot be shot, and vanishes when you throw or let go. Position and angle are tuned with HeldGrenadeOffset and HeldGrenadeRotation", true);
 	c_HeldGrenadeScale = config.RegisterFloat("HeldGrenadeScale", "Size of the grenade shown in hand, as a fraction of its normal size. The world model is sized for a thrown grenade and reads too large held up close", 0.6f);
+	c_HeldGrenadeOffset = config.RegisterVector3("HeldGrenadeOffset", "Where the held grenade sits relative to your hand, in metres along the hand's own axes (forward, side, up). Nudging it forward and up also helps it clear the fingers, which draw over it", Vector3(0.0f, 0.0f, 0.0f));
+	c_HeldGrenadeRotation = config.RegisterVector3("HeldGrenadeRotation", "Rotation of the held grenade in degrees about the hand's own axes (forward, up, third). Tune by eye - there is no way to know the model's resting orientation up front", Vector3(0.0f, 0.0f, 0.0f));
 	c_ThrowGrenadeOnRelease = config.RegisterBool("ThrowGrenadeOnRelease", "Throw the grenade when the grenade button is released, rather than immediately when pressed. Lets you hold the button while winding up the throw motion", false);
 	c_GrenadePunch = config.RegisterBool("GrenadePunch", "While ThrowGrenadeOnRelease is on, hold the grenade button and land an off-hand melee on a character or vehicle to detonate your currently selected grenade (frag or plasma) at the punch. Weapon-hand melee is unchanged. Uses one grenade of that type. Real in-game explosion, does not hurt you, still deals melee damage", false);
 	c_GrenadePunchPower = config.RegisterFloat("GrenadePunchPower", "Explosion strength multiplier for the grenade punch. 1 is a single grenade, 2 stacks two blasts at the same spot, and so on, up to 8. Still only spends one grenade", 1.0f);
