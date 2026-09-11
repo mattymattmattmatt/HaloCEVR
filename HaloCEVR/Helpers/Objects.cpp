@@ -82,6 +82,16 @@ void Helpers::HoldObject(BaseDynamicObject* object, const Vector3& position, con
 		return;
 	}
 
+	// A dropped grenade is a pickup, and this one sits permanently inside the
+	// player's pickup radius - which handed out unlimited grenades. Pickup is a
+	// collision test, so turning collision off stops it being collected, and
+	// stops it blocking shots or shoving the player around.
+	uint16_t objFlags = static_cast<uint16_t>(object->N0000025F);
+	objFlags |= static_cast<uint16_t>(ObjectProperties::NoCollision);
+	objFlags |= static_cast<uint16_t>(ObjectProperties::NoCollision2);
+	objFlags |= static_cast<uint16_t>(ObjectProperties::NoGravity);
+	object->N0000025F = static_cast<ObjectProperties>(objFlags);
+
 	object->position = position;
 	object->centre = position;
 	object->velocity = Vector3(0.0f, 0.0f, 0.0f);
@@ -249,6 +259,9 @@ void Helpers::HoldProjectile(BaseDynamicObject* projectile, const Vector3& posit
 	// forced every frame and velocity zeroed, so it stays put regardless.
 	uint16_t objFlags = static_cast<uint16_t>(projectile->N0000025F);
 	objFlags &= ~static_cast<uint16_t>(ObjectProperties::Stationary);
+	objFlags |= static_cast<uint16_t>(ObjectProperties::NoCollision);
+	objFlags |= static_cast<uint16_t>(ObjectProperties::NoCollision2);
+	objFlags |= static_cast<uint16_t>(ObjectProperties::NoGravity);
 	projectile->N0000025F = static_cast<ObjectProperties>(objFlags);
 
 	projectile->position = position;
