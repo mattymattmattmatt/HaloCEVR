@@ -254,9 +254,6 @@ protected:
 
 	HaloID heldGrenadeID{ 0xFFFF, 0xFFFF };
 	int heldGrenadeType = -1;
-	// The visible model is an equipment object; the effects come from a live
-	// projectile alongside it with its own model hidden.
-	HaloID heldGrenadeFxID{ 0xFFFF, 0xFFFF };
 	float grenadePunchFxTimer = 0.0f;
 	Vector3 grenadePunchFxPos = Vector3(0.0f, 0.0f, 0.0f);
 

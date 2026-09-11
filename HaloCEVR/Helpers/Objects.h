@@ -259,11 +259,6 @@ namespace Helpers
 	// The inverse: park a projectile at a position with its effects running but
 	// its fuse and physics stopped, for showing a live grenade in hand.
 	void HoldProjectile(BaseDynamicObject* projectile, const Vector3& position, float scale);
-	// Park any object at a transform. Writes nothing projectile specific, so it
-	// is safe for the equipment model.
-	void HoldObject(BaseDynamicObject* object, const Vector3& position, const Vector3& facing, const Vector3& up, float scale);
-	// Hide a projectile's model while leaving its effects playing.
-	void SetProjectileModelHidden(BaseDynamicObject* projectile, bool bHidden);
 	// Park a held projectile out of sight, still frozen. Cheaper and far safer
 	// than destroying it: anything that expires the fuse risks a detonation.
 	void HideProjectile(BaseDynamicObject* projectile);
