@@ -255,7 +255,8 @@ namespace Helpers
 	void ArmProjectileDetonation(BaseDynamicObject* projectile, bool startFuse = true);
 	// The inverse: park a projectile at a position with its effects running but
 	// its fuse and physics stopped, for showing a live grenade in hand.
-	void HoldProjectile(BaseDynamicObject* projectile, const Vector3& position);
-	// Remove a held projectile without an explosion.
-	void DespawnProjectile(BaseDynamicObject* projectile);
+	void HoldProjectile(BaseDynamicObject* projectile, const Vector3& position, float scale);
+	// Park a held projectile out of sight, still frozen. Cheaper and far safer
+	// than destroying it: anything that expires the fuse risks a detonation.
+	void HideProjectile(BaseDynamicObject* projectile);
 }

@@ -1676,14 +1676,38 @@ void InputHandler::UpdatePoseCapture()
 	// put the free hand where the grenade should sit and double click.
 	if (IsGrenadeHeld())
 	{
-		const Matrix4 throwHand = vr->GetControllerTransform(offHand, true);
-		const Matrix4 pointerHand = vr->GetControllerTransform(weaponHand, true);
+		// Two steps. The first click parks the grenade in mid air; move your
+		// hand to the grip you want and click again to record where the
+		// grenade sits relative to it. Posing against a fixed object beats
+		// trying to judge an offset while it chases your hand.
+		Vector3 frozenPos, frozenFacing, frozenUp;
+		if (!Game::instance.GetHeldGrenadeWorldTransform(frozenPos, frozenFacing, frozenUp))
+		{
+			Game::instance.ToggleHeldGrenadePoseFreeze();
+			Logger::log << "[PoseCapture] grenade parked - pose your hand and double click again" << std::endl;
+			vr->TriggerHapticVibration(offHand, 0.0f, 0.06f, 120.0f, 0.6f);
+			return;
+		}
 
-		Matrix4 throwInverse = throwHand;
-		throwInverse.invertAffine();
+		// Rebuild the frozen grenade as a transform in the same space the hand
+		// is in, then express it relative to the hand.
+		const Vector3 localPos = (frozenPos - Helpers::GetCamera().position)
+			* Game::instance.WorldToMetres(1.0f);
+		const Vector3 third = frozenFacing.cross(frozenUp);
+		const float src[16] = {
+			frozenFacing.x, frozenFacing.y, frozenFacing.z, 0.0f,
+			frozenUp.x, frozenUp.y, frozenUp.z, 0.0f,
+			third.x, third.y, third.z, 0.0f,
+			localPos.x, localPos.y, localPos.z, 1.0f
+		};
+		const Matrix4 grenadeTransform(src);
+
+		Matrix4 handInverse = vr->GetControllerTransform(offHand, true);
+		handInverse.invertAffine();
 
 		const char* poseName = Game::instance.GetHeldGrenadePoseName();
-		HandPose::Capture(poseName, throwInverse * pointerHand);
+		HandPose::Capture(poseName, handInverse * grenadeTransform);
+		Game::instance.ToggleHeldGrenadePoseFreeze();
 
 		Logger::log << "[PoseCapture] saved " << poseName
 			<< " -> VR/poses/offhandposes.txt" << std::endl;

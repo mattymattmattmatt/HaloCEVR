@@ -211,7 +211,7 @@ HaloID Helpers::SpawnObject(HaloID tagID, const Vector3& position, HaloID parent
 	return result;
 }
 
-void Helpers::HoldProjectile(BaseDynamicObject* projectile, const Vector3& position)
+void Helpers::HoldProjectile(BaseDynamicObject* projectile, const Vector3& position, float scale)
 {
 	if (!projectile || projectile->N0000027E != ObjectType::PROJECTILE)
 	{
@@ -226,9 +226,16 @@ void Helpers::HoldProjectile(BaseDynamicObject* projectile, const Vector3& posit
 	projectile->N0000025F = static_cast<ObjectProperties>(objFlags);
 
 	projectile->position = position;
+	projectile->centre = position;
 	projectile->velocity = Vector3(0.0f, 0.0f, 0.0f);
+	projectile->scale = scale;
 
 	uint8_t* raw = reinterpret_cast<uint8_t*>(projectile);
+
+	// The detonation mode. 0 explodes and 1 disappears, but anything higher
+	// freezes the projectile outright, which is the only setting that survives
+	// both a plasma arming itself and the release of a frag.
+	*reinterpret_cast<uint16_t*>(raw + 0x230) = 2;
 
 	// Frozen in time, and explicitly not at rest, so the fuse never starts.
 	uint32_t projFlags = *reinterpret_cast<uint32_t*>(raw + 0x22C);
@@ -243,31 +250,19 @@ void Helpers::HoldProjectile(BaseDynamicObject* projectile, const Vector3& posit
 	*reinterpret_cast<float*>(raw + 0x248) = 0.0f;
 }
 
-void Helpers::DespawnProjectile(BaseDynamicObject* projectile)
+void Helpers::HideProjectile(BaseDynamicObject* projectile)
 {
 	if (!projectile || projectile->N0000027E != ObjectType::PROJECTILE)
 	{
 		return;
 	}
 
-	uint8_t* raw = reinterpret_cast<uint8_t*>(projectile);
-
-	// 1 = disappear rather than explode, then unfreeze and expire the fuse so
-	// the engine cleans it up on its own terms instead of us freeing anything.
-	*reinterpret_cast<uint16_t*>(raw + 0x230) = 1;
-
-	uint32_t projFlags = *reinterpret_cast<uint32_t*>(raw + 0x22C);
-	projFlags &= ~(1u << 3);
-	projFlags |= (1u << 4);
-	projFlags |= (1u << 5);
-	*reinterpret_cast<uint32_t*>(raw + 0x22C) = projFlags;
-
-	uint16_t objFlags = static_cast<uint16_t>(projectile->N0000025F);
-	objFlags &= ~static_cast<uint16_t>(ObjectProperties::Stationary);
-	projectile->N0000025F = static_cast<ObjectProperties>(objFlags);
-
-	*reinterpret_cast<float*>(raw + 0x244) = 1.0f / 30.0f;
-	*reinterpret_cast<float*>(raw + 0x248) = 10.0f;
+	// Zero scale rather than destroying it. Every route to removal runs through
+	// the fuse, and expiring the fuse on a live grenade is what detonated it in
+	// the hand; keeping it frozen and invisible avoids the whole problem, and
+	// the object is reused next time rather than respawned.
+	projectile->scale = 0.0f;
+	HoldProjectile(projectile, Vector3(0.0f, 0.0f, -1000.0f), 0.0f);
 }
 
 void Helpers::ArmProjectileDetonation(BaseDynamicObject* projectile, bool startFuse)
