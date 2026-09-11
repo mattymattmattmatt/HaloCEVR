@@ -1684,7 +1684,6 @@ void InputHandler::UpdatePoseCapture()
 		if (!Game::instance.GetHeldGrenadeWorldTransform(frozenPos, frozenFacing, frozenUp))
 		{
 			Game::instance.ToggleHeldGrenadePoseFreeze();
-			Logger::log << "[PoseCapture] grenade parked - pose your hand and double click again" << std::endl;
 			vr->TriggerHapticVibration(offHand, 0.0f, 0.06f, 120.0f, 0.6f);
 			return;
 		}

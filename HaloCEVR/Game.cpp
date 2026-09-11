@@ -798,6 +798,8 @@ void Game::ToggleHeldGrenadePoseFreeze()
 	BaseDynamicObject* grenade = GetLiveObject(heldGrenadeID);
 	if (!grenade)
 	{
+		Logger::log << "[HeldGrenade] freeze ignored: no live object (id "
+			<< heldGrenadeID << ")" << std::endl;
 		return;
 	}
 
@@ -809,6 +811,13 @@ void Game::ToggleHeldGrenadePoseFreeze()
 		heldGrenadeFrozenFacing = grenade->facingDir;
 		heldGrenadeFrozenUp = grenade->upDirection;
 	}
+
+	// Read the scale back: if the engine is overwriting it, the size setting is
+	// being ignored and the field is not what we think it is.
+	Logger::log << "[HeldGrenade] frozen=" << (bHeldGrenadePoseFrozen ? "yes" : "no")
+		<< " scaleWanted=" << (c_HeldGrenadeScale ? c_HeldGrenadeScale->Value() : -1.0f)
+		<< " scaleReadBack=" << grenade->scale
+		<< std::endl;
 }
 
 bool Game::GetHeldGrenadeWorldTransform(Vector3& outPos, Vector3& outFacing, Vector3& outUp) const
@@ -1910,7 +1919,7 @@ void Game::SetupConfigs()
 	c_OffHandPoseCapture = config.RegisterBool("OffHandPoseCapture", "Allow recording off hand hold poses in game: double click the right stick (or double press zoom) while holding a one handed weapon to overwrite that weapon's pose in VR/poses/offhandposes.txt. Off by default so a stray double press cannot destroy a pose you are happy with. Turn on only while authoring", false);
 	c_OffHandGripSmoothing = config.RegisterFloat("OffHandGripSmoothing", "Extra aim smoothing while the off hand grip is held on a one handed weapon, on top of whatever the current zoom level uses. Braces the shot the way a two handed hold would, at the cost of the aim lagging your hand slightly. 0 disables it and changes nothing (0 to 2, try around 0.3)", 0.0f);
 	c_GrippedSpreadReduction = config.RegisterFloat("GrippedSpreadReduction", "Reduce weapon spread while braced - two hand aiming a two handed weapon, or holding the off hand grip on a one handed one. 0.5 halves the spread cone, 1 makes it pinpoint, 0 changes nothing. Only applies to your own shots; enemies using the same weapon are unaffected. Assault rifle is 2 to 6.5 degrees stock, plasma rifle 0.25 to 2.5", 0.0f);
-	c_ShowHeldGrenade = config.RegisterBool("ShowHeldGrenade", "Show a live grenade in your throwing hand while the grenade button is held, matching the type you have selected - a smoking frag or a glowing plasma, the way it looks once thrown. Purely cosmetic: it cannot detonate, cannot be shot, and vanishes when you throw or let go", true);
+	c_ShowHeldGrenade = config.RegisterBool("ShowHeldGrenade", "Show a live grenade in your throwing hand while the grenade button is held, matching the type you have selected - a smoking frag or a glowing plasma, the way it looks once thrown. Purely cosmetic: it cannot detonate, cannot be shot, and vanishes when you throw or let go. Experimental - the world model does not honour scale and draws behind the hands", false);
 	c_HeldGrenadeScale = config.RegisterFloat("HeldGrenadeScale", "Size of the grenade shown in hand, as a fraction of its normal size. The world model is sized for a thrown grenade and reads too large held up close", 0.6f);
 	c_ThrowGrenadeOnRelease = config.RegisterBool("ThrowGrenadeOnRelease", "Throw the grenade when the grenade button is released, rather than immediately when pressed. Lets you hold the button while winding up the throw motion", false);
 	c_GrenadePunch = config.RegisterBool("GrenadePunch", "While ThrowGrenadeOnRelease is on, hold the grenade button and land an off-hand melee on a character or vehicle to detonate your currently selected grenade (frag or plasma) at the punch. Weapon-hand melee is unchanged. Uses one grenade of that type. Real in-game explosion, does not hurt you, still deals melee damage", false);
