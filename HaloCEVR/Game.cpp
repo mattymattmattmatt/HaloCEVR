@@ -786,7 +786,10 @@ void Game::ClearHeldGrenade()
 	BaseDynamicObject* grenade = GetLiveObject(heldGrenadeID);
 	if (grenade)
 	{
-		Helpers::HideProjectile(grenade);
+		// Equipment, not a projectile: no fuse to expire, so simply park it
+		// out of sight at zero scale.
+		Helpers::HoldObject(grenade, Vector3(0.0f, 0.0f, -1000.0f),
+			Vector3(1.0f, 0.0f, 0.0f), Vector3(0.0f, 0.0f, 1.0f), 0.0f);
 	}
 
 }
@@ -847,8 +850,11 @@ void Game::UpdateHeldGrenade()
 			Helpers::HideProjectile(grenade);
 		}
 
+		// The equipment model, not the projectile: it honours the scale and
+		// facing the projectile ignores, and it can now be made uncollectable
+		// without hiding it.
 		HaloID grenadeTag;
-		if (!Helpers::FindGrenadeProjectileTag(grenadeType, grenadeTag))
+		if (!Helpers::FindGrenadeTag(grenadeType, "eqip", "piqe", grenadeTag))
 		{
 			return;
 		}
@@ -860,6 +866,8 @@ void Game::UpdateHeldGrenade()
 		{
 			return;
 		}
+
+		Helpers::SetObjectNoPickup(grenade);
 
 		heldGrenadeID = spawned;
 		heldGrenadeType = grenadeType;
@@ -905,7 +913,10 @@ void Game::UpdateHeldGrenade()
 	grenade->rotVelRoll = 0.0f;
 
 	const float scale = c_HeldGrenadeScale ? c_HeldGrenadeScale->Value() : 0.6f;
-	Helpers::HoldProjectile(grenade, posedPos, scale);
+	Helpers::HoldObject(grenade, posedPos, posed.getLeftAxis(), posed.getUpAxis(), scale);
+	// Re-applied every frame: the engine clears the pickup bit once it decides
+	// the grab is over, which would make it collectable again.
+	Helpers::SetObjectNoPickup(grenade);
 }
 
 void Game::BeginGrenadePunchFx(const Vector3& worldPos)

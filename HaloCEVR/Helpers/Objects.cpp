@@ -75,6 +75,43 @@ bool Helpers::FindGrenadeProjectileTag(int grenadeType, HaloID& outTag)
 	return FindGrenadeTag(grenadeType, "proj", "jorp", outTag);
 }
 
+void Helpers::HoldObject(BaseDynamicObject* object, const Vector3& position, const Vector3& facing, const Vector3& up, float scale)
+{
+	if (!object)
+	{
+		return;
+	}
+
+	object->position = position;
+	object->centre = position;
+	object->velocity = Vector3(0.0f, 0.0f, 0.0f);
+	object->facingDir = facing;
+	object->upDirection = up;
+	object->rotVelPitch = 0.0f;
+	object->rotVelYaw = 0.0f;
+	object->rotVelRoll = 0.0f;
+	object->scale = scale;
+}
+
+void Helpers::SetObjectNoPickup(BaseDynamicObject* object)
+{
+	if (!object)
+	{
+		return;
+	}
+
+	// The flags at +0x10 are a full dword; ObjectProperties only covers the low
+	// half, which is why the useful bits were out of reach. Per aLTis's offsets:
+	//   bit 24 obj_is_collideable - set to let other objects pass through
+	//   bit 26 obj_pickup         - set while an object is being picked up
+	// Setting both stops the grenade being collected while leaving it visible.
+	// Bit 0 is ghost mode, which is what the mod calls NoCollision and what
+	// made the model disappear - deliberately not touched here.
+	uint32_t* flags = reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(object) + 0x10);
+	*flags |= (1u << 24);
+	*flags |= (1u << 26);
+}
+
 bool Helpers::FindGrenadeTag(int grenadeType, const char* group, const char* groupReversed, HaloID& outTag)
 {
 	outTag.index = 0xFFFF;
