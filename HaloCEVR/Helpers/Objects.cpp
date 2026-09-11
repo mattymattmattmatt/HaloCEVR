@@ -75,6 +75,46 @@ bool Helpers::FindGrenadeProjectileTag(int grenadeType, HaloID& outTag)
 	return FindGrenadeTag(grenadeType, "proj", "jorp", outTag);
 }
 
+void Helpers::HoldObject(BaseDynamicObject* object, const Vector3& position, const Vector3& facing, const Vector3& up, float scale)
+{
+	if (!object)
+	{
+		return;
+	}
+
+	object->position = position;
+	object->centre = position;
+	object->velocity = Vector3(0.0f, 0.0f, 0.0f);
+	object->facingDir = facing;
+	object->upDirection = up;
+	object->rotVelPitch = 0.0f;
+	object->rotVelYaw = 0.0f;
+	object->rotVelRoll = 0.0f;
+	object->scale = scale;
+}
+
+void Helpers::SetProjectileModelHidden(BaseDynamicObject* projectile, bool bHidden)
+{
+	if (!projectile)
+	{
+		return;
+	}
+
+	// NoCollision hides the model but leaves the effects running, which is the
+	// whole trick: the invisible projectile supplies the glow or smoke while a
+	// separate equipment object supplies a model that can be sized and angled.
+	uint16_t objFlags = static_cast<uint16_t>(projectile->N0000025F);
+	if (bHidden)
+	{
+		objFlags |= static_cast<uint16_t>(ObjectProperties::NoCollision);
+	}
+	else
+	{
+		objFlags &= ~static_cast<uint16_t>(ObjectProperties::NoCollision);
+	}
+	projectile->N0000025F = static_cast<ObjectProperties>(objFlags);
+}
+
 bool Helpers::FindGrenadeTag(int grenadeType, const char* group, const char* groupReversed, HaloID& outTag)
 {
 	outTag.index = 0xFFFF;

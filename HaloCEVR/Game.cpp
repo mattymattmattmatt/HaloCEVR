@@ -783,10 +783,19 @@ void Game::ClearHeldGrenade()
 {
 	// Keep the object: it is frozen and invisible, and gets reused. Destroying
 	// it means expiring its fuse, which is what blew it up in your hand.
+	BaseDynamicObject* fx = GetLiveObject(heldGrenadeFxID);
+	if (fx)
+	{
+		Helpers::HideProjectile(fx);
+	}
+
 	BaseDynamicObject* grenade = GetLiveObject(heldGrenadeID);
 	if (grenade)
 	{
-		Helpers::HideProjectile(grenade);
+		// Equipment: park it out of sight at zero scale. It is not a projectile,
+		// so there is no fuse to expire and nothing to detonate.
+		Helpers::HoldObject(grenade, Vector3(0.0f, 0.0f, -1000.0f),
+			Vector3(1.0f, 0.0f, 0.0f), Vector3(0.0f, 0.0f, 1.0f), 0.0f);
 	}
 
 }
@@ -838,23 +847,21 @@ void Game::UpdateHeldGrenade()
 
 	BaseDynamicObject* grenade = GetLiveObject(heldGrenadeID);
 
-	// Respawn only if the object is gone (map change) or the type changed. The
-	// old one is hidden rather than destroyed, so it can simply be left.
+	// Respawn only if an object is gone (map change) or the type changed.
 	if (!grenade || grenadeType != heldGrenadeType)
 	{
-		if (grenade)
-		{
-			Helpers::HideProjectile(grenade);
-		}
+		ClearHeldGrenade();
 
-		HaloID grenadeTag;
-		if (!Helpers::FindGrenadeProjectileTag(grenadeType, grenadeTag))
+		// Visible model: the equipment grenade, which honours scale and facing.
+		// Parented to the player in the hope that an owned object is not
+		// treated as a free pickup the way a loose one on the floor is.
+		HaloID equipTag;
+		if (!Helpers::FindGrenadeTag(grenadeType, "eqip", "piqe", equipTag))
 		{
 			return;
 		}
 
-		HaloID noParent{ 0xFFFF, 0xFFFF };
-		const HaloID spawned = Helpers::SpawnObject(grenadeTag, handPos, noParent);
+		const HaloID spawned = Helpers::SpawnObject(equipTag, handPos, playerID);
 		grenade = Helpers::GetDynamicObject(const_cast<HaloID&>(spawned));
 		if (!grenade)
 		{
@@ -863,6 +870,19 @@ void Game::UpdateHeldGrenade()
 
 		heldGrenadeID = spawned;
 		heldGrenadeType = grenadeType;
+
+		// Effects: a live projectile with its own model hidden, so the glow or
+		// smoke plays over the equipment model.
+		HaloID projTag;
+		HaloID noParent{ 0xFFFF, 0xFFFF };
+		if (Helpers::FindGrenadeProjectileTag(grenadeType, projTag))
+		{
+			const HaloID spawnedFx = Helpers::SpawnObject(projTag, handPos, noParent);
+			if (Helpers::GetDynamicObject(const_cast<HaloID&>(spawnedFx)))
+			{
+				heldGrenadeFxID = spawnedFx;
+			}
+		}
 	}
 
 	// Re-park it every frame: it follows the hand, and the frozen flags are
@@ -905,7 +925,15 @@ void Game::UpdateHeldGrenade()
 	grenade->rotVelRoll = 0.0f;
 
 	const float scale = c_HeldGrenadeScale ? c_HeldGrenadeScale->Value() : 0.6f;
-	Helpers::HoldProjectile(grenade, posedPos, scale);
+	Helpers::HoldObject(grenade, posedPos, posed.getLeftAxis(), posed.getUpAxis(), scale);
+
+	// Keep the effects projectile on top of it, model hidden and inert.
+	BaseDynamicObject* fxObject = GetLiveObject(heldGrenadeFxID);
+	if (fxObject)
+	{
+		Helpers::HoldProjectile(fxObject, posedPos, scale);
+		Helpers::SetProjectileModelHidden(fxObject, true);
+	}
 }
 
 void Game::BeginGrenadePunchFx(const Vector3& worldPos)
