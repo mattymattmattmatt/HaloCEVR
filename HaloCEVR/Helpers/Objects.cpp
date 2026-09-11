@@ -231,8 +231,6 @@ void Helpers::HoldProjectile(BaseDynamicObject* projectile, const Vector3& posit
 	// forced every frame and velocity zeroed, so it stays put regardless.
 	uint16_t objFlags = static_cast<uint16_t>(projectile->N0000025F);
 	objFlags &= ~static_cast<uint16_t>(ObjectProperties::Stationary);
-	objFlags |= static_cast<uint16_t>(ObjectProperties::NoCollision);
-	objFlags |= static_cast<uint16_t>(ObjectProperties::NoGravity);
 	projectile->N0000025F = static_cast<ObjectProperties>(objFlags);
 
 	projectile->position = position;
