@@ -787,7 +787,15 @@ void Game::ClearHeldGrenade()
 	BaseDynamicObject* grenade = GetLiveObject(heldGrenadeID);
 	if (grenade)
 	{
-		Helpers::HideProjectile(grenade);
+		if (bHeldGrenadeLive)
+		{
+			Helpers::HideProjectile(grenade);
+		}
+		else
+		{
+			Helpers::HoldObject(grenade, Vector3(0.0f, 0.0f, -1000.0f),
+				Vector3(1.0f, 0.0f, 0.0f), Vector3(0.0f, 0.0f, 1.0f), 0.0f);
+		}
 	}
 
 }
@@ -796,9 +804,10 @@ void Game::UpdateHeldGrenade()
 {
 	VR_PROFILE_SCOPE(Game_UpdateHeldGrenade);
 
+	// Shown whenever grenades are carried: inert in hand normally, live once
+	// the button is held. No grenades means nothing in hand at all.
 	const bool bWanted = c_ShowHeldGrenade && c_ShowHeldGrenade->Value()
 		&& !bInVehicle
-		&& inputHandler.IsGrenadeHeld()
 		&& weaponHandler.HasAnyGrenades()
 		&& !Helpers::IsLoading();
 
@@ -839,17 +848,31 @@ void Game::UpdateHeldGrenade()
 
 	BaseDynamicObject* grenade = GetLiveObject(heldGrenadeID);
 
-	// Respawn only if the object is gone (map change) or the type changed. The
-	// old one is hidden rather than destroyed, so it can simply be left.
-	if (!grenade || grenadeType != heldGrenadeType)
+	// Live once the button is held, inert otherwise.
+	const bool bLive = inputHandler.IsGrenadeHeld();
+
+	// Respawn if the object is gone (map change), the type changed, or we are
+	// switching between the inert and live models.
+	if (!grenade || grenadeType != heldGrenadeType || bLive != bHeldGrenadeLive)
 	{
 		if (grenade)
 		{
-			Helpers::HideProjectile(grenade);
+			if (bHeldGrenadeLive)
+			{
+				Helpers::HideProjectile(grenade);
+			}
+			else
+			{
+				Helpers::HoldObject(grenade, Vector3(0.0f, 0.0f, -1000.0f),
+					Vector3(1.0f, 0.0f, 0.0f), Vector3(0.0f, 0.0f, 1.0f), 0.0f);
+			}
 		}
 
 		HaloID grenadeTag;
-		if (!Helpers::FindGrenadeProjectileTag(grenadeType, grenadeTag))
+		const bool bFound = bLive
+			? Helpers::FindGrenadeProjectileTag(grenadeType, grenadeTag)
+			: Helpers::FindGrenadeTag(grenadeType, "eqip", "piqe", grenadeTag);
+		if (!bFound)
 		{
 			return;
 		}
@@ -864,6 +887,7 @@ void Game::UpdateHeldGrenade()
 
 		heldGrenadeID = spawned;
 		heldGrenadeType = grenadeType;
+		bHeldGrenadeLive = bLive;
 	}
 
 	// Re-park it every frame: it follows the hand, and the frozen flags are
@@ -906,7 +930,16 @@ void Game::UpdateHeldGrenade()
 	grenade->rotVelRoll = 0.0f;
 
 	const float scale = c_HeldGrenadeScale ? c_HeldGrenadeScale->Value() : 0.6f;
-	Helpers::HoldProjectile(grenade, posedPos, scale);
+	if (bHeldGrenadeLive)
+	{
+		Helpers::HoldProjectile(grenade, posedPos, scale);
+	}
+	else
+	{
+		// Equipment is an ordinary object, so it may well honour the facing and
+		// scale the projectile ignored.
+		Helpers::HoldObject(grenade, posedPos, posed.getLeftAxis(), posed.getUpAxis(), scale);
+	}
 }
 
 void Game::BeginGrenadePunchFx(const Vector3& worldPos)

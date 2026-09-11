@@ -249,6 +249,12 @@ namespace Helpers
 	// Spawn a map object (used to drop a live grenade projectile).
 	HaloID SpawnObject(HaloID tagID, const Vector3& position, HaloID parent);
 	bool FindGrenadeProjectileTag(int grenadeType, HaloID& outTag);
+	// Same search over a different tag group: "proj" is the live grenade in
+	// flight, "eqip" the inert one you pick up off the floor.
+	bool FindGrenadeTag(int grenadeType, const char* group, const char* groupReversed, HaloID& outTag);
+	// Park any object at a transform. Unlike HoldProjectile this writes nothing
+	// projectile specific, so it is safe for equipment.
+	void HoldObject(BaseDynamicObject* object, const Vector3& position, const Vector3& facing, const Vector3& up, float scale);
 	// Force a spawned grenade projectile to detonate like a chain-reaction nade.
 	// Pass startFuse=true on spawn (sets a 1-tick countdown). Later ticks should
 	// only refresh at-rest/arming flags so the countdown can actually expire.

@@ -254,6 +254,9 @@ protected:
 
 	HaloID heldGrenadeID{ 0xFFFF, 0xFFFF };
 	int heldGrenadeType = -1;
+	// Whether the object currently spawned is the live projectile or the inert
+	// equipment model you would pick up off the floor.
+	bool bHeldGrenadeLive = false;
 	float grenadePunchFxTimer = 0.0f;
 	Vector3 grenadePunchFxPos = Vector3(0.0f, 0.0f, 0.0f);
 

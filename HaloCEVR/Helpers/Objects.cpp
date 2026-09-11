@@ -72,6 +72,29 @@ BaseDynamicObject* Helpers::GetLocalPlayer()
 
 bool Helpers::FindGrenadeProjectileTag(int grenadeType, HaloID& outTag)
 {
+	return FindGrenadeTag(grenadeType, "proj", "jorp", outTag);
+}
+
+void Helpers::HoldObject(BaseDynamicObject* object, const Vector3& position, const Vector3& facing, const Vector3& up, float scale)
+{
+	if (!object)
+	{
+		return;
+	}
+
+	object->position = position;
+	object->centre = position;
+	object->velocity = Vector3(0.0f, 0.0f, 0.0f);
+	object->facingDir = facing;
+	object->upDirection = up;
+	object->rotVelPitch = 0.0f;
+	object->rotVelYaw = 0.0f;
+	object->rotVelRoll = 0.0f;
+	object->scale = scale;
+}
+
+bool Helpers::FindGrenadeTag(int grenadeType, const char* group, const char* groupReversed, HaloID& outTag)
+{
 	outTag.index = 0xFFFF;
 	outTag.id = 0xFFFF;
 
@@ -110,8 +133,8 @@ bool Helpers::FindGrenadeProjectileTag(int grenadeType, HaloID& outTag)
 
 	for (int i = 0; i < count; ++i)
 	{
-		const bool isProj = std::memcmp(tags[i].GroupID, "proj", 4) == 0
-			|| std::memcmp(tags[i].GroupID, "jorp", 4) == 0;
+		const bool isProj = std::memcmp(tags[i].GroupID, group, 4) == 0
+			|| std::memcmp(tags[i].GroupID, groupReversed, 4) == 0;
 		if (!isProj)
 		{
 			continue;
@@ -141,7 +164,7 @@ bool Helpers::FindGrenadeProjectileTag(int grenadeType, HaloID& outTag)
 		if (std::strstr(lower, want))
 		{
 			outTag = id;
-			Logger::log << "[GrenadePunch] Found " << want << " proj tag " << outTag
+			Logger::log << "[Grenade] Found " << want << " " << group << " tag " << outTag
 				<< " path=" << path << std::endl;
 			return true;
 		}
@@ -160,7 +183,7 @@ bool Helpers::FindGrenadeProjectileTag(int grenadeType, HaloID& outTag)
 		return true;
 	}
 
-	Logger::log << "[GrenadePunch] No projectile tag for type " << grenadeType << std::endl;
+	Logger::log << "[Grenade] No " << group << " tag for type " << grenadeType << std::endl;
 	return false;
 }
 
@@ -218,11 +241,14 @@ void Helpers::HoldProjectile(BaseDynamicObject* projectile, const Vector3& posit
 		return;
 	}
 
-	// Object AT_REST skips projectile simulation entirely. That is what made
-	// the first grenade punch attempt hang in mid air with its plasma or smoke
-	// still playing - undesirable then, exactly the effect wanted here.
+	// Deliberately NOT setting AT_REST. That flag skips simulation, and with
+	// simulation skipped the engine never rebuilds the object's render
+	// transform - which is why neither scale nor orientation had any visible
+	// effect while it was set. Stopping it detonating is the job of the
+	// detonation mode and the frozen bit below, not of this flag; position is
+	// forced every frame and velocity zeroed, so it stays put regardless.
 	uint16_t objFlags = static_cast<uint16_t>(projectile->N0000025F);
-	objFlags |= static_cast<uint16_t>(ObjectProperties::Stationary);
+	objFlags &= ~static_cast<uint16_t>(ObjectProperties::Stationary);
 	projectile->N0000025F = static_cast<ObjectProperties>(objFlags);
 
 	projectile->position = position;
