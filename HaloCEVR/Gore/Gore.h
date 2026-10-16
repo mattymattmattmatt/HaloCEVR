@@ -17,4 +17,7 @@ namespace Gore
 
 	// Once per rendered frame (not per eye): spawns queued gibs, ages pieces.
 	void Update();
+
+	// Before every draw of the scene (each eye): shrinks the nodes each piece doesn't keep.
+	void PreRender();
 }

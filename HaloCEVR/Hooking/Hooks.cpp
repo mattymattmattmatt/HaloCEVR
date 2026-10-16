@@ -378,6 +378,7 @@ void Hooks::H_DrawFrame(Renderer* param1, short param2, short* param3, float tic
 	if (Game::instance.PreDrawScope(param1, deltaTime))
 	{
 		VR_PROFILE_START(Hooks_DrawFrame_DrawScope);
+		Gore::PreRender();
 		DrawFrame.Original(param1, param2, param3, tickProgress, deltaTime);
 		VR_PROFILE_STOP(Hooks_DrawFrame_DrawScope);
 		Game::instance.PostDrawScope(param1, deltaTime);
@@ -389,7 +390,8 @@ void Hooks::H_DrawFrame(Renderer* param1, short param2, short* param3, float tic
 	// Draw left eye
 	Game::instance.PreDrawEye(param1, deltaTime, 0);
 	VR_PROFILE_START(Hooks_DrawFrame_DrawLeftEye);
-	DrawFrame.Original(param1, param2, param3, tickProgress, deltaTime);
+	Gore::PreRender();
+		DrawFrame.Original(param1, param2, param3, tickProgress, deltaTime);
 	VR_PROFILE_STOP(Hooks_DrawFrame_DrawLeftEye);
 	Game::instance.PostDrawEye(param1, deltaTime, 0);
 
@@ -399,7 +401,8 @@ void Hooks::H_DrawFrame(Renderer* param1, short param2, short* param3, float tic
 	// Draw right eye
 	Game::instance.PreDrawEye(param1, deltaTime, 1);
 	VR_PROFILE_START(Hooks_DrawFrame_DrawRightEye);
-	DrawFrame.Original(param1, param2, param3, tickProgress, deltaTime);
+	Gore::PreRender();
+		DrawFrame.Original(param1, param2, param3, tickProgress, deltaTime);
 	VR_PROFILE_STOP(Hooks_DrawFrame_DrawRightEye);
 	Game::instance.PostDrawEye(param1, deltaTime, 1);
 
@@ -410,6 +413,7 @@ void Hooks::H_DrawFrame(Renderer* param1, short param2, short* param3, float tic
 
 		Game::instance.PreDrawMirror(param1, deltaTime);
 		VR_PROFILE_START(Hooks_DrawFrame_DrawMirror);
+		Gore::PreRender();
 		DrawFrame.Original(param1, param2, param3, tickProgress, deltaTime);
 		VR_PROFILE_STOP(Hooks_DrawFrame_DrawMirror);
 		Game::instance.PostDrawMirror(param1, deltaTime);

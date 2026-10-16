@@ -90,7 +90,17 @@ namespace
 	constexpr int NUM_PARTS = 6; // + torso
 
 	struct Pending { uint32_t unit = NONE; float force = 0.f; float dir[3]{}; uint8_t damage[D_SIZE]{}; ULONGLONG time = 0; };
-	struct Piece { uint32_t object = NONE; ULONGLONG born = 0; };
+	constexpr int MAX_NODES = 64;
+	constexpr int O_NODE_MATRICES = 0x1F0;  // short size, short offset from the object
+	constexpr int O_NEXT_OBJECT = 0x114;
+	constexpr int O_FIRST_CHILD = 0x118;
+	constexpr int U_FRAG_COUNT = 0x31E;
+	constexpr int MOD2_NODES = 0xB8;
+	constexpr int MOD2_NODE_SIZE = 0x9C;
+	constexpr int MATRIX_SIZE = 52;          // scale, forward, left, up, position
+	// A piece: a dead copy of the whole unit; each node not in the piece is
+	// shrunk to nothing at its joint every frame before the scene is drawn.
+	struct Piece { uint32_t object = NONE; ULONGLONG born = 0; int nodeCount = 0; int8_t collapse[MAX_NODES]; bool logged = false; };
 
 	constexpr int MAX_PENDING = 16;
 	constexpr int MAX_PIECES = 256;
@@ -251,7 +261,40 @@ namespace
 		return mask & ~used;
 	}
 
-	void SpawnCopy(uint8_t* unit, uint32_t unitID, uint32_t regionMask, const Pending& p, uint32_t blood)
+	int NodeFind(uint8_t* model, const char* name)
+	{
+		int count = F<int32_t>(model, MOD2_NODES);
+		uint8_t* nodes = F<uint8_t*>(model, MOD2_NODES + 4);
+		if (!nodes) return -1;
+		for (int i = 0; i < count && i < MAX_NODES; i++)
+			if (_strnicmp(reinterpret_cast<const char*>(nodes + i * MOD2_NODE_SIZE), name, 32) == 0) return i;
+		return -1;
+	}
+
+	void MarkSubtree(uint8_t* model, int node, int8_t* owner, int8_t value, int depth = 0)
+	{
+		int count = F<int32_t>(model, MOD2_NODES);
+		uint8_t* nodes = F<uint8_t*>(model, MOD2_NODES + 4);
+		while (node >= 0 && node < count && node < MAX_NODES && depth < MAX_NODES)
+		{
+			uint8_t* n = nodes + node * MOD2_NODE_SIZE;
+			owner[node] = value;
+			MarkSubtree(model, F<int16_t>(n, 0x22), owner, value, depth + 1);
+			node = F<int16_t>(n, 0x20);
+		}
+	}
+
+	void LogRegionsAndNodes(uint8_t* model, const char* path)
+	{
+		int rc = F<int32_t>(model, MOD2_REGIONS);
+		uint8_t* regions = F<uint8_t*>(model, MOD2_REGIONS + 4);
+		Logger::log << "[Gore] " << path << " regions(" << rc << "):";
+		for (int r = 0; regions && r < rc && r < 8; r++) Logger::log << " '" << std::string(reinterpret_cast<const char*>(regions + r * MOD2_REGION_SIZE), strnlen(reinterpret_cast<const char*>(regions + r * MOD2_REGION_SIZE), 32)) << "'";
+		int nc = F<int32_t>(model, MOD2_NODES);
+		Logger::log << " nodes " << nc << std::endl;
+	}
+
+	void SpawnCopy(uint8_t* unit, uint32_t unitID, uint32_t regionMask, const Pending& p, uint32_t blood, const int8_t* collapse = nullptr, int nodeCount = 0)
 	{
 		HaloID tag; *reinterpret_cast<uint32_t*>(&tag) = F<uint32_t>(unit, 0);
 		HaloID none; none.index = 0xFFFF; none.id = 0xFFFF;
@@ -266,6 +309,26 @@ namespace
 		Piece* piece = NewPiece();
 		piece->object = id;
 		piece->born = GetTickCount64();
+		piece->logged = false;
+		piece->nodeCount = collapse ? nodeCount : 0;
+		for (int n = 0; n < MAX_NODES; n++) piece->collapse[n] = collapse && n < nodeCount ? collapse[n] : -1;
+
+		// A unit made this way can come with its starting weapons: anything
+		// attached goes before the kill, or the death drops it on the floor.
+		int removed = 0;
+		for (int guard = 0; guard < 16; guard++)
+		{
+			uint32_t child = F<uint32_t>(obj, O_FIRST_CHILD);
+			if (child == NONE || !GetObject(child)) break;
+			DeleteObject(child);
+			removed++;
+			obj = GetObject(id);
+			if (!obj) { piece->object = NONE; return; }
+		}
+		if (F<uint16_t>(obj, O_TYPE) == 0) { F<uint8_t>(obj, U_FRAG_COUNT) = 0; F<uint8_t>(obj, U_FRAG_COUNT + 1) = 0; }
+		if (Game::instance.c_GoreLog->Value())
+			Logger::log << "[Gore] piece " << std::hex << id << std::dec << " spawned, removed " << removed << " attached objects"
+				<< (F<uint32_t>(obj, O_FIRST_CHILD) != NONE ? " (still has a child!)" : "") << std::endl;
 
 		F<Vector3>(obj, O_FORWARD) = F<Vector3>(unit, O_FORWARD);
 		F<Vector3>(obj, O_UP) = F<Vector3>(unit, O_UP);
@@ -337,7 +400,48 @@ namespace
 
 		int parts = 0;
 		uint32_t used = 0;
-		if (model)
+		if (model) LogRegionsAndNodes(model, TagPath(def));
+
+		// True limbs first: any bip01 skeleton (one-region Grunts included).
+		static const char* const roots[] = { "bip01 head", "bip01 l upperarm", "bip01 r upperarm", "bip01 l thigh", "bip01 r thigh" };
+		int rootNodes[5];
+		bool bones = model != nullptr;
+		int nodeCount = model ? F<int32_t>(model, MOD2_NODES) : 0;
+		if (nodeCount > MAX_NODES) nodeCount = MAX_NODES;
+		uint8_t* unitObj = GetObject(p.unit);
+		if (bones && unitObj && F<int16_t>(unitObj, O_NODE_MATRICES) / MATRIX_SIZE < nodeCount)
+		{
+			Logger::log << "[Gore] node matrices " << F<int16_t>(unitObj, O_NODE_MATRICES) / MATRIX_SIZE << " < model nodes " << nodeCount << ": no bone split" << std::endl;
+			bones = false;
+		}
+		for (int i = 0; bones && i < 5; i++)
+		{
+			rootNodes[i] = NodeFind(model, roots[i]);
+			if (rootNodes[i] < 0) { Logger::log << "[Gore] no node '" << roots[i] << "': no bone split" << std::endl; bones = false; }
+		}
+		if (bones)
+		{
+			int8_t owner[MAX_NODES]{};
+			uint8_t* nodes = F<uint8_t*>(model, MOD2_NODES + 4);
+			for (int i = 0; i < 5; i++)
+			{
+				owner[rootNodes[i]] = (int8_t)(i + 1);
+				MarkSubtree(model, F<int16_t>(nodes + rootNodes[i] * MOD2_NODE_SIZE, 0x22), owner, (int8_t)(i + 1));
+			}
+			for (int piece = 0; piece <= 5; piece++)
+			{
+				int8_t collapse[MAX_NODES];
+				for (int n = 0; n < MAX_NODES; n++)
+				{
+					if (n >= nodeCount || owner[n] == piece) collapse[n] = -1;
+					else if (piece) collapse[n] = (int8_t)rootNodes[piece - 1];
+					else collapse[n] = (int8_t)rootNodes[owner[n] - 1];
+				}
+				SpawnCopy(GetObject(p.unit), p.unit, 0xFF, p, trail != NONE ? trail : blood, collapse, nodeCount);
+				parts++;
+			}
+		}
+		else if (model)
 		{
 			uint32_t masks[NUM_PARTS]{};
 			for (int part = 0; part < NUM_PARTS; part++)
@@ -354,10 +458,58 @@ namespace
 					if (masks[part]) SpawnCopy(GetObject(p.unit), p.unit, masks[part], p, trail != NONE ? trail : blood);
 			}
 		}
-		Logger::log << "[Gore] " << TagPath(def) << " came apart into " << parts << " pieces, force " << p.force << std::endl;
+		Logger::log << "[Gore] " << TagPath(def) << " came apart into " << parts << " pieces (" << (bones ? "bones" : "regions") << "), force " << p.force << std::endl;
 
 		// The corpse goes when it split; a one-region model just bleeds and stays.
-		if (parts >= 2) DeleteObject(p.unit);
+		if (parts >= 2)
+		{
+			DeleteObject(p.unit);
+			if (GetObject(p.unit)) Logger::log << "[Gore] the original body was NOT deleted" << std::endl;
+			else if (Game::instance.c_GoreLog->Value()) Logger::log << "[Gore] original body deleted" << std::endl;
+		}
+	}
+}
+
+void Gore::PreRender()
+{
+	if (!bActive) return;
+	__try
+	{
+		for (Piece& piece : pieces)
+		{
+			if (piece.object == NONE || piece.nodeCount == 0) continue;
+			uint8_t* obj = GetObject(piece.object);
+			if (!obj) continue;
+			int16_t size = F<int16_t>(obj, O_NODE_MATRICES);
+			int16_t offset = F<int16_t>(obj, O_NODE_MATRICES + 2);
+			int count = size / MATRIX_SIZE;
+			if (count < piece.nodeCount || offset <= 0)
+			{
+				if (!piece.logged) Logger::log << "[Gore] piece " << std::hex << piece.object << std::dec << " node matrices missing (" << count << "): not collapsed" << std::endl;
+				piece.logged = true;
+				continue;
+			}
+			uint8_t* m = obj + offset;
+			int collapsed = 0;
+			for (int n = 0; n < piece.nodeCount; n++)
+			{
+				int to = piece.collapse[n];
+				if (to < 0 || to >= count) continue;
+				float* dst = reinterpret_cast<float*>(m + n * MATRIX_SIZE);
+				float* src = reinterpret_cast<float*>(m + to * MATRIX_SIZE);
+				dst[0] = 0.f;                                     // no size: its vertices meet at the joint
+				dst[10] = src[10]; dst[11] = src[11]; dst[12] = src[12];
+				collapsed++;
+			}
+			if (!piece.logged && Game::instance.c_GoreLog->Value())
+				Logger::log << "[Gore] piece " << std::hex << piece.object << std::dec << " collapse applied to " << collapsed << " of " << count << " nodes" << std::endl;
+			piece.logged = true;
+		}
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER)
+	{
+		Logger::log << "[Gore] exception collapsing pieces: gore switched off" << std::endl;
+		bActive = false;
 	}
 }
 
