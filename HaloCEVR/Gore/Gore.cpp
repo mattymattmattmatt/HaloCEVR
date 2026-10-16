@@ -9,6 +9,7 @@
 #include "../Hooking/Hooks.h"
 #include "../Helpers/Objects.h"
 #include "../Helpers/Assets.h"
+#include "../Helpers/Maths.h"
 
 // Retail layouts (Halo PC 1.0.10). The object fields are the decompile's
 // object_data shifted by the 0x50 bytes retail keeps before the position
@@ -97,7 +98,8 @@ namespace
 	constexpr int U_FRAG_COUNT = 0x31E;
 	constexpr int MOD2_NODES = 0xB8;
 	constexpr int MOD2_NODE_SIZE = 0x9C;
-	constexpr int MATRIX_SIZE = 52;          // scale, forward, left, up, position
+	constexpr int MATRIX_SIZE = sizeof(Transform); // 52: scale, rotation, translation
+	static_assert(sizeof(Transform) == 52, "node matrix");          // scale, forward, left, up, position
 	// A piece: a dead copy of the whole unit; each node not in the piece is
 	// shrunk to nothing at its joint every frame before the scene is drawn.
 	struct Piece { uint32_t object = NONE; ULONGLONG born = 0; int nodeCount = 0; int8_t collapse[MAX_NODES]; bool logged = false; };
@@ -495,10 +497,13 @@ void Gore::PreRender()
 			{
 				int to = piece.collapse[n];
 				if (to < 0 || to >= count) continue;
-				float* dst = reinterpret_cast<float*>(m + n * MATRIX_SIZE);
-				float* src = reinterpret_cast<float*>(m + to * MATRIX_SIZE);
-				dst[0] = 0.f;                                     // no size: its vertices meet at the joint
-				dst[10] = src[10]; dst[11] = src[11]; dst[12] = src[12];
+				// The same trick the view model uses to show only the hands
+				// (WeaponHandler: scale 0, moved onto the joint).
+				Transform* dst = reinterpret_cast<Transform*>(m + n * MATRIX_SIZE);
+				const Transform* src = reinterpret_cast<const Transform*>(m + to * MATRIX_SIZE);
+				dst->translation = src->translation;
+				for (int j = 0; j < 9; j++) dst->rotation[j] = src->rotation[j];
+				dst->scale = 0.f;
 				collapsed++;
 			}
 			if (!piece.logged && Game::instance.c_GoreLog->Value())
