@@ -58,11 +58,9 @@ void Hooks::InitHooks()
 	CREATEHOOK(FireWeapon);
 	CREATEHOOK(ThrowGrenade);
 	CREATEHOOK(MeleeDamage);
-	if (Game::instance.c_GoreEnabled->Value())
-	{
-		CREATEHOOK(ObjectCauseDamage);
-		Gore::Init();
-	}
+	// Gore: always created, only enabled if Gore::Init (run in EnableAllHooks,
+	// after every signature has been scanned) says gore can run.
+	CREATEHOOK(ObjectCauseDamage);
 	CREATEHOOK(DrawLoadingScreen2);
 	CREATEHOOK(DrawCinematicBars);
 	CREATEHOOK(DrawViewModel);
@@ -105,6 +103,9 @@ void Hooks::InitHooks()
 void Hooks::EnableAllHooks()
 {
 	VR_PROFILE_SCOPE(Hooks_EnableAllHooks);
+
+	// Every offset (CreateObject included) is resolved by now.
+	Gore::Init();
 
 	InitDirectX.EnableHook();
 	DrawFrame.EnableHook();
