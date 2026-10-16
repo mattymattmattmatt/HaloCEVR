@@ -20,6 +20,7 @@ typedef void(*Func_UpdateMouseInfo)();
 typedef void(__cdecl* Func_FireWeapon)(HaloID, short);
 typedef void(__cdecl* Func_ThrowGrenade)(HaloID, bool);
 typedef void(__cdecl* Func_MeleeDamage)(HaloID);
+typedef int(__cdecl* Func_ObjectUpdate)(uint32_t object);
 typedef void(__cdecl* Func_ObjectCauseDamage)(void* damage, uint32_t object, int32_t node, int32_t region, int32_t material, void* normal);
 typedef void(*Func_SetCameraMatrices)();
 typedef int(__cdecl* Func_MaybeNightVision)(float* param1);

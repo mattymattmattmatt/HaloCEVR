@@ -81,6 +81,11 @@ public:
 	// hs_effect_new_on_object_marker's body: effect in edi, object in esi,
 	// marker name on the stack.
 	OFFSET(ObjectCauseDamage,     0x0ee5e0, "81 ec 94 00 00 00 8b 84 24 9c 00 00 00 25 ff ff 00 00");
+	// object_update(object): runs the object's tick, rebuilds its node
+	// matrices (halo+0xf8310, skipped with object flag 23), updates children,
+	// then postprocesses the matrices. After it returns the bones are final
+	// for that tick: the gore pieces' collapse goes there.
+	OFFSET(ObjectUpdate,          0x0f7ef0, "51 8b 0d ?? ?? ?? ?? 8b 51 34 53 8b 5c 24 0c 8b c3");
 	OFFSET(ObjectDelete,          0x0f5bd0, "8b 0d ?? ?? ?? ?? 8b 51 34 57 8b f8 25 ff ff 00 00");
 	OFFSET(EffectNewOnObjectMarker, 0x0888f0, "83 ec 6c 83 ff ff 74 55 83 fe ff 74 50 8b 4c 24 70");
 	OFFSET(SetViewModelVisible,   0x092430, "51 8b 0d ?? ?? ?? ?? 66 83 f9 ff 74 ?? 8b 15 ?? ?? ?? ?? 56 0f bf f1");

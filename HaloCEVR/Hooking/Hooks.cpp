@@ -61,6 +61,7 @@ void Hooks::InitHooks()
 	// Gore: always created, only enabled if Gore::Init (run in EnableAllHooks,
 	// after every signature has been scanned) says gore can run.
 	CREATEHOOK(ObjectCauseDamage);
+	CREATEHOOK(ObjectUpdate);
 	CREATEHOOK(DrawLoadingScreen2);
 	CREATEHOOK(DrawCinematicBars);
 	CREATEHOOK(DrawViewModel);
@@ -126,6 +127,7 @@ void Hooks::EnableAllHooks()
 	if (Gore::IsActive())
 	{
 		ObjectCauseDamage.EnableHook();
+		ObjectUpdate.EnableHook();
 	}
 	DrawLoadingScreen2.EnableHook();
 	DrawCinematicBars.EnableHook();
@@ -852,6 +854,15 @@ void Hooks::H_MeleeDamage(HaloID param1)
 	MeleeDamage.Original(param1);
 
 	Game::instance.PostMeleeDamage(param1);
+}
+
+int Hooks::H_ObjectUpdate(uint32_t object)
+{
+	const int result = ObjectUpdate.Original(object);
+
+	Gore::PostObjectUpdate(object);
+
+	return result;
 }
 
 void Hooks::H_ObjectCauseDamage(void* damage, uint32_t object, int32_t node, int32_t region, int32_t material, void* normal)

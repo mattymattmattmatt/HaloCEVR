@@ -20,4 +20,7 @@ namespace Gore
 
 	// Before every draw of the scene (each eye): shrinks the nodes each piece doesn't keep.
 	void PreRender();
+
+	// After retail object_update: the bones are final for the tick.
+	void PostObjectUpdate(uint32_t objectID);
 }
