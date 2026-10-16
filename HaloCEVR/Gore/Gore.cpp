@@ -103,7 +103,7 @@ namespace
 	// A piece: a dead copy of the whole unit; each node not in the piece is
 	// shrunk to nothing at its joint every frame before the scene is drawn.
 	struct Piece { uint32_t object = NONE; ULONGLONG born = 0; int nodeCount = 0; int8_t collapse[MAX_NODES]; bool logged = false;
-		float vel[3]{}; float spin[3]{}; int reapply = 0;
+		float vel[3]{}; float spin[3]{}; int reapply = 0; int keep = -1;
 		// Once frozen the game stops rebuilding its nodes (object flag 23) and
 		// we own them: the collapsed pose, moved along with the object.
 	};
@@ -206,7 +206,13 @@ namespace
 	{
 		float scale = Game::instance.c_GoreThresholdScale->Value();
 		if (scale <= 0.f) scale = 1.f;
-		if (!(F<uint32_t>(damage, D_FLAGS) & 1)) return 0.f; // only blasts and vehicle hits
+		if (!(F<uint32_t>(damage, D_FLAGS) & 1)) // only blasts and vehicle hits
+		{
+			if (Game::instance.c_GoreLog->Value())
+				Logger::log << "[Gore] kill on " << TagPath(F<uint32_t>(unit, 0)) << " by " << TagPath(F<uint32_t>(damage, D_DEFINITION))
+					<< " is not a blast (flags " << std::hex << F<uint32_t>(damage, D_FLAGS) << std::dec << "): no gib" << std::endl;
+			return 0.f;
+		}
 
 		// A vehicle hit (physics.c): the vehicle's centre is the epicentre and
 		// the owner is the vehicle or its driver.
@@ -236,9 +242,8 @@ namespace
 		}
 
 		uint8_t* jpt = TagData(F<uint32_t>(damage, D_DEFINITION));
-		if (!jpt) return 0.f;
-		float full = F<float>(jpt, JPT_UPPER_BOUND);
-		if (full <= 0.f) return 0.f;
+		float full = jpt ? F<float>(jpt, JPT_UPPER_BOUND) : 0.f;
+		if (full <= 0.f || full > 100000.f) full = FRAG_DAMAGE; // unreadable: treat it as a frag
 		float* c = &F<float>(unit, O_CENTRE);
 		float r = F<float>(unit, O_RADIUS);
 		float z = epi[2];
@@ -247,7 +252,13 @@ namespace
 		float dx = epi[0] - c[0], dy = epi[1] - c[1], dz = z - c[2];
 		float measure = sqrtf(dx * dx + dy * dy + dz * dz) * METRES_PER_WU;
 		float threshold = type->gibRadius * sqrtf(full / FRAG_DAMAGE) / scale;
-		return threshold / (measure > 0.15f ? measure : 0.15f);
+		float force = threshold / (measure > 0.15f ? measure : 0.15f);
+		// The port's rule: a blast within 2 m (a stuck grenade) always gibs.
+		if (measure < 2.0f / scale && force < 1.5f) force = 1.5f;
+		if (Game::instance.c_GoreLog->Value())
+			Logger::log << "[Gore] blast on " << TagPath(F<uint32_t>(unit, 0)) << ": " << TagPath(F<uint32_t>(damage, D_DEFINITION))
+				<< " full " << full << (jpt ? "" : " (no tag)") << ", " << measure << " m, gibs within " << threshold << " m, force " << force << std::endl;
+		return force;
 	}
 
 	Piece* NewPiece()
@@ -392,10 +403,10 @@ namespace
 				bone = reinterpret_cast<Transform*>(unit + offset)[keepNode].translation;
 		}
 		Vector3 centre = F<Vector3>(unit, O_CENTRE);
-		// Start a little toward the kept bone so the pieces don't share one spot.
-		pos.x += (bone.x - centre.x) * 0.35f;
-		pos.y += (bone.y - centre.y) * 0.35f;
-		pos.z += (bone.z - centre.z) * 0.2f;
+		// The piece's origin is its kept bone: the game spins and moves an
+		// object about its origin, and after each update the whole pose is
+		// shifted so that bone sits on it (PostObjectUpdate).
+		if (keepNode >= 0) pos = bone;
 		HaloID created = Helpers::SpawnObject(tag, pos, none);
 		uint32_t id = *reinterpret_cast<uint32_t*>(&created);
 		uint8_t* obj = GetObject(id);
@@ -408,6 +419,7 @@ namespace
 		piece->born = GetTickCount64();
 		piece->logged = false;
 		piece->nodeCount = collapse ? nodeCount : 0;
+		piece->keep = keepNode;
 		for (int n = 0; n < MAX_NODES; n++) piece->collapse[n] = collapse && n < nodeCount ? collapse[n] : -1;
 
 		// A unit made this way can come with its starting weapons: anything
@@ -653,6 +665,18 @@ void Gore::PostObjectUpdate(uint32_t objectID)
 				piece.reapply--;
 			}
 			int collapsed = Collapse(piece, obj);
+			if (collapsed >= 0 && piece.keep >= 0 && piece.keep < piece.nodeCount)
+			{
+				Transform* nodes = reinterpret_cast<Transform*>(obj + F<int16_t>(obj, O_NODE_MATRICES + 2));
+				Vector3 at = F<Vector3>(obj, O_POSITION);
+				Vector3 d(at.x - nodes[piece.keep].translation.x, at.y - nodes[piece.keep].translation.y, at.z - nodes[piece.keep].translation.z);
+				for (int n = 0; n < piece.nodeCount; n++)
+				{
+					nodes[n].translation.x += d.x; nodes[n].translation.y += d.y; nodes[n].translation.z += d.z;
+				}
+				// The bounding sphere follows, or the piece is culled by the old one.
+				F<Vector3>(obj, O_CENTRE) = at;
+			}
 			if (!piece.logged)
 			{
 				if (collapsed < 0) Logger::log << "[Gore] piece " << std::hex << objectID << std::dec << " has no node matrices: not collapsed" << std::endl;
