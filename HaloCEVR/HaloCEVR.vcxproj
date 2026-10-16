@@ -237,6 +237,7 @@
     <ClCompile Include="InGameRenderer.cpp" />
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="Game.cpp" />
+    <ClCompile Include="Gore\Gore.cpp" />
     <ClCompile Include="Helpers\Assets.cpp" />
     <ClCompile Include="Helpers\Camera.cpp" />
     <ClCompile Include="Helpers\Controls.cpp" />
@@ -279,6 +280,7 @@
     <ClInclude Include="Helpers\Version.h" />
     <ClInclude Include="InGameRenderer.h" />
     <ClInclude Include="Game.h" />
+    <ClInclude Include="Gore\Gore.h" />
     <ClInclude Include="Helpers\Assets.h" />
     <ClInclude Include="Helpers\Camera.h" />
     <ClInclude Include="Helpers\Controls.h" />

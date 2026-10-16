@@ -12,6 +12,7 @@
 #include "../Helpers/CmdLineArgs.h"
 
 #include "../Profiler.h"
+#include "../Gore/Gore.h"
 
 #define CREATEHOOK(Func) Func##.CreateHook(#Func, o.##Func##, &H_##Func##)
 #define RESOLVEINDIRECT(Name) ResolveIndirect(o.I_##Name, o.##Name)
@@ -57,6 +58,10 @@ void Hooks::InitHooks()
 	CREATEHOOK(FireWeapon);
 	CREATEHOOK(ThrowGrenade);
 	CREATEHOOK(MeleeDamage);
+	// Gore: always created, only enabled if Gore::Init (run in EnableAllHooks,
+	// after every signature has been scanned) says gore can run.
+	CREATEHOOK(ObjectCauseDamage);
+	CREATEHOOK(ObjectUpdate);
 	CREATEHOOK(DrawLoadingScreen2);
 	CREATEHOOK(DrawCinematicBars);
 	CREATEHOOK(DrawViewModel);
@@ -100,6 +105,9 @@ void Hooks::EnableAllHooks()
 {
 	VR_PROFILE_SCOPE(Hooks_EnableAllHooks);
 
+	// Every offset (CreateObject included) is resolved by now.
+	Gore::Init();
+
 	InitDirectX.EnableHook();
 	DrawFrame.EnableHook();
 	DrawHUD.EnableHook();
@@ -116,6 +124,11 @@ void Hooks::EnableAllHooks()
 	FireWeapon.EnableHook();
 	ThrowGrenade.EnableHook();
 	MeleeDamage.EnableHook();
+	if (Gore::IsActive())
+	{
+		ObjectCauseDamage.EnableHook();
+		ObjectUpdate.EnableHook();
+	}
 	DrawLoadingScreen2.EnableHook();
 	DrawCinematicBars.EnableHook();
 	DrawViewModel.EnableHook();
@@ -367,6 +380,7 @@ void Hooks::H_DrawFrame(Renderer* param1, short param2, short* param3, float tic
 	if (Game::instance.PreDrawScope(param1, deltaTime))
 	{
 		VR_PROFILE_START(Hooks_DrawFrame_DrawScope);
+		Gore::PreRender();
 		DrawFrame.Original(param1, param2, param3, tickProgress, deltaTime);
 		VR_PROFILE_STOP(Hooks_DrawFrame_DrawScope);
 		Game::instance.PostDrawScope(param1, deltaTime);
@@ -378,7 +392,8 @@ void Hooks::H_DrawFrame(Renderer* param1, short param2, short* param3, float tic
 	// Draw left eye
 	Game::instance.PreDrawEye(param1, deltaTime, 0);
 	VR_PROFILE_START(Hooks_DrawFrame_DrawLeftEye);
-	DrawFrame.Original(param1, param2, param3, tickProgress, deltaTime);
+	Gore::PreRender();
+		DrawFrame.Original(param1, param2, param3, tickProgress, deltaTime);
 	VR_PROFILE_STOP(Hooks_DrawFrame_DrawLeftEye);
 	Game::instance.PostDrawEye(param1, deltaTime, 0);
 
@@ -388,7 +403,8 @@ void Hooks::H_DrawFrame(Renderer* param1, short param2, short* param3, float tic
 	// Draw right eye
 	Game::instance.PreDrawEye(param1, deltaTime, 1);
 	VR_PROFILE_START(Hooks_DrawFrame_DrawRightEye);
-	DrawFrame.Original(param1, param2, param3, tickProgress, deltaTime);
+	Gore::PreRender();
+		DrawFrame.Original(param1, param2, param3, tickProgress, deltaTime);
 	VR_PROFILE_STOP(Hooks_DrawFrame_DrawRightEye);
 	Game::instance.PostDrawEye(param1, deltaTime, 1);
 
@@ -399,6 +415,7 @@ void Hooks::H_DrawFrame(Renderer* param1, short param2, short* param3, float tic
 
 		Game::instance.PreDrawMirror(param1, deltaTime);
 		VR_PROFILE_START(Hooks_DrawFrame_DrawMirror);
+		Gore::PreRender();
 		DrawFrame.Original(param1, param2, param3, tickProgress, deltaTime);
 		VR_PROFILE_STOP(Hooks_DrawFrame_DrawMirror);
 		Game::instance.PostDrawMirror(param1, deltaTime);
@@ -837,6 +854,24 @@ void Hooks::H_MeleeDamage(HaloID param1)
 	MeleeDamage.Original(param1);
 
 	Game::instance.PostMeleeDamage(param1);
+}
+
+int Hooks::H_ObjectUpdate(uint32_t object)
+{
+	const int result = ObjectUpdate.Original(object);
+
+	Gore::PostObjectUpdate(object);
+
+	return result;
+}
+
+void Hooks::H_ObjectCauseDamage(void* damage, uint32_t object, int32_t node, int32_t region, int32_t material, void* normal)
+{
+	const uint32_t state = Gore::PreDamage(damage, object);
+
+	ObjectCauseDamage.Original(damage, object, node, region, material, normal);
+
+	Gore::PostDamage(damage, object, state, node);
 }
 
 void Hooks::H_DrawLoadingScreen2(void* param1)

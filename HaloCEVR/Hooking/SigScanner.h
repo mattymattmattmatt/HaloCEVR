@@ -74,6 +74,20 @@ public:
 	// 6 / 24 bytes before the match (see chimera object.S).
 	OFFSET(CreateObjectQuery,     0x0f53a6, "53 8b 5c 24 0c 56 8b f0 33 c0");
 	OFFSET(CreateObject,          0x0f54c8, "56 83 ce ff 85 c9 57");
+	// Gore. object_cause_damage(damage_data*, object, node, region, material,
+	// normal): every hit, blasts and vehicle impacts included (retail
+	// hs_damage_object at halo+0x88a40 calls it). object_delete takes the
+	// object in eax (hs_object_destroy at halo+0x7a645). The effect call is
+	// hs_effect_new_on_object_marker's body: effect in edi, object in esi,
+	// marker name on the stack.
+	OFFSET(ObjectCauseDamage,     0x0ee5e0, "81 ec 94 00 00 00 8b 84 24 9c 00 00 00 25 ff ff 00 00");
+	// object_update(object): runs the object's tick, rebuilds its node
+	// matrices (halo+0xf8310, skipped with object flag 23), updates children,
+	// then postprocesses the matrices. After it returns the bones are final
+	// for that tick: the gore pieces' collapse goes there.
+	OFFSET(ObjectUpdate,          0x0f7ef0, "51 8b 0d ?? ?? ?? ?? 8b 51 34 53 8b 5c 24 0c 8b c3");
+	OFFSET(ObjectDelete,          0x0f5bd0, "8b 0d ?? ?? ?? ?? 8b 51 34 57 8b f8 25 ff ff 00 00");
+	OFFSET(EffectNewOnObjectMarker, 0x0888f0, "83 ec 6c 83 ff ff 74 55 83 fe ff 74 50 8b 4c 24 70");
 	OFFSET(SetViewModelVisible,   0x092430, "51 8b 0d ?? ?? ?? ?? 66 83 f9 ff 74 ?? 8b 15 ?? ?? ?? ?? 56 0f bf f1");
 	OFFSET(TextureAlphaWrite,     0x11c9d1, "6a 01 6a 16 33 ?? 50 89 ?? ?? ?? ff 91 e4 00 00 00 a1 ?? ?? ?? ?? 8b 10 6a 07 68 a8 00 00 00 50 ff 92 e4 00 00 00 a1 ?? ?? ?? ?? 8b 08 6a 01 6a 1b 50");
 	OFFSET(TextAlphaWrite,        0x131b80, "a0 ?? ?? ?? ?? 84 c0 0f 84 ?? ?? ?? ?? 66 83 ?? ?? ?? ?? 00 01 0f 85 ?? ?? ?? ?? 53 55 56");
