@@ -363,7 +363,8 @@ bool Gore::Init()
 		Logger::log << "[Gore] disabled in config" << std::endl;
 		return false;
 	}
-	fnCauseDamage = Hooks::ObjectCauseDamage.Original ? reinterpret_cast<void*>(Hooks::ObjectCauseDamage.Original) : nullptr;
+	// (the hooked entry: our own kills go through the hook, flagged internal)
+	fnCauseDamage = Hooks::o.ObjectCauseDamage.Address ? reinterpret_cast<void*>(Hooks::o.ObjectCauseDamage.Address) : nullptr;
 	if (SigScanner::UpdateOffset(Hooks::o.ObjectDelete) >= 0) fnDelete = reinterpret_cast<void*>(Hooks::o.ObjectDelete.Address);
 	if (SigScanner::UpdateOffset(Hooks::o.EffectNewOnObjectMarker) >= 0) fnEffectOnMarker = reinterpret_cast<void*>(Hooks::o.EffectNewOnObjectMarker.Address);
 	if (!fnCauseDamage || !fnDelete || Hooks::o.CreateObject.Address == 0 || Hooks::o.CreateObjectQuery.Address == 0)
