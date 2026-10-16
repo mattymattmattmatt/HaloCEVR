@@ -102,7 +102,19 @@ namespace
 	static_assert(sizeof(Transform) == 52, "node matrix");          // scale, forward, left, up, position
 	// A piece: a dead copy of the whole unit; each node not in the piece is
 	// shrunk to nothing at its joint every frame before the scene is drawn.
-	struct Piece { uint32_t object = NONE; ULONGLONG born = 0; int nodeCount = 0; int8_t collapse[MAX_NODES]; bool logged = false; };
+	struct Piece { uint32_t object = NONE; ULONGLONG born = 0; int nodeCount = 0; int8_t collapse[MAX_NODES]; bool logged = false;
+		// Once frozen the game stops rebuilding its nodes (object flag 23) and
+		// we own them: the collapsed pose, moved along with the object.
+		bool frozen = false; Vector3 basePos; Transform base[MAX_NODES]; };
+
+	// Weapons and equipment that existed when a body split; anything new
+	// near the split in the next 2 seconds is a piece's drop and goes.
+	struct Sweep { Vector3 at; ULONGLONG until = 0; };
+	constexpr int MAX_SWEEPS = 8;
+	Sweep sweeps[MAX_SWEEPS];
+	constexpr int MAX_KNOWN = 1024;
+	uint32_t known[MAX_KNOWN];
+	int knownCount = 0;
 
 	constexpr int MAX_PENDING = 16;
 	constexpr int MAX_PIECES = 256;
@@ -296,6 +308,57 @@ namespace
 		Logger::log << " nodes " << nc << std::endl;
 	}
 
+	bool IsLooseItem(uint8_t* o) { uint16_t t = F<uint16_t>(o, O_TYPE); return (t == 2 || t == 3) && F<uint32_t>(o, O_PARENT) == NONE; }
+
+	void SnapshotWeapons(const Vector3& at)
+	{
+		ObjectTable& table = Helpers::GetObjectTable();
+		knownCount = 0;
+		for (int i = 0; table.elements && i < table.currentSize && knownCount < MAX_KNOWN; i++)
+		{
+			ObjectDatum& d = table.elements[i];
+			if (!d.dynamicObject || d.id == 0) continue;
+			uint8_t* o = reinterpret_cast<uint8_t*>(d.dynamicObject);
+			if (IsLooseItem(o) || F<uint16_t>(o, O_TYPE) == 2 || F<uint16_t>(o, O_TYPE) == 3)
+				known[knownCount++] = (uint32_t(d.id) << 16) | uint32_t(i);
+		}
+		for (Sweep& w : sweeps)
+			if (w.until == 0 || GetTickCount64() > w.until) { w.at = at; w.until = GetTickCount64() + 2000; return; }
+	}
+
+	void SweepDrops()
+	{
+		SweepDrops();
+		ULONGLONG now = GetTickCount64();
+		bool any = false;
+		for (Sweep& w : sweeps) if (w.until && now <= w.until) any = true; else w.until = 0;
+		if (!any) return;
+		ObjectTable& table = Helpers::GetObjectTable();
+		for (int i = 0; table.elements && i < table.currentSize; i++)
+		{
+			ObjectDatum& d = table.elements[i];
+			if (!d.dynamicObject || d.id == 0) continue;
+			uint8_t* o = reinterpret_cast<uint8_t*>(d.dynamicObject);
+			if (!IsLooseItem(o)) continue;
+			uint32_t id = (uint32_t(d.id) << 16) | uint32_t(i);
+			bool old = false;
+			for (int k = 0; k < knownCount && !old; k++) old = known[k] == id;
+			if (old) continue;
+			Vector3 pos = F<Vector3>(o, O_POSITION);
+			for (Sweep& w : sweeps)
+			{
+				if (!w.until) continue;
+				float dx = pos.x - w.at.x, dy = pos.y - w.at.y, dz = pos.z - w.at.z;
+				if (dx * dx + dy * dy + dz * dz < 9.f)
+				{
+					if (Game::instance.c_GoreLog->Value()) Logger::log << "[Gore] removed a piece's dropped " << TagPath(F<uint32_t>(o, 0)) << std::endl;
+					DeleteObject(id);
+					break;
+				}
+			}
+		}
+	}
+
 	void SpawnCopy(uint8_t* unit, uint32_t unitID, uint32_t regionMask, const Pending& p, uint32_t blood, const int8_t* collapse = nullptr, int nodeCount = 0)
 	{
 		HaloID tag; *reinterpret_cast<uint32_t*>(&tag) = F<uint32_t>(unit, 0);
@@ -312,6 +375,7 @@ namespace
 		piece->object = id;
 		piece->born = GetTickCount64();
 		piece->logged = false;
+		piece->frozen = false;
 		piece->nodeCount = collapse ? nodeCount : 0;
 		for (int n = 0; n < MAX_NODES; n++) piece->collapse[n] = collapse && n < nodeCount ? collapse[n] : -1;
 
@@ -403,6 +467,7 @@ namespace
 		int parts = 0;
 		uint32_t used = 0;
 		if (model) LogRegionsAndNodes(model, TagPath(def));
+		SnapshotWeapons(F<Vector3>(GetObject(p.unit), O_POSITION));
 
 		// True limbs first: any bip01 skeleton (one-region Grunts included).
 		static const char* const roots[] = { "bip01 head", "bip01 l upperarm", "bip01 r upperarm", "bip01 l thigh", "bip01 r thigh" };
@@ -465,9 +530,13 @@ namespace
 		// The corpse goes when it split; a one-region model just bleeds and stays.
 		if (parts >= 2)
 		{
+			// Hidden at once (retail deletes at the end of the objects' update,
+			// so it's still in the table right after the call).
+			if (uint8_t* body = GetObject(p.unit)) F<uint32_t>(body, O_FLAGS) |= 1u;
 			DeleteObject(p.unit);
-			if (GetObject(p.unit)) Logger::log << "[Gore] the original body was NOT deleted" << std::endl;
-			else if (Game::instance.c_GoreLog->Value()) Logger::log << "[Gore] original body deleted" << std::endl;
+			uint8_t* body = GetObject(p.unit);
+			if (body && !(F<uint32_t>(body, O_FLAGS) & 1u)) Logger::log << "[Gore] the original body is still visible" << std::endl;
+			else if (Game::instance.c_GoreLog->Value()) Logger::log << "[Gore] original body hidden and deleted" << (body ? " (deletion pending)" : "") << std::endl;
 		}
 	}
 }
@@ -492,6 +561,23 @@ void Gore::PreRender()
 				continue;
 			}
 			uint8_t* m = obj + offset;
+			Transform* nodes = reinterpret_cast<Transform*>(m);
+			Vector3 pos = F<Vector3>(obj, O_POSITION);
+			if (piece.frozen)
+			{
+				// Ours since the freeze: the game no longer rebuilds them.
+				if (!(F<uint32_t>(obj, O_FLAGS) & (1u << 23)) && !piece.logged)
+					Logger::log << "[Gore] piece " << std::hex << piece.object << std::dec << " lost its frozen flag" << std::endl;
+				F<uint32_t>(obj, O_FLAGS) |= (1u << 23);
+				for (int n = 0; n < piece.nodeCount; n++)
+				{
+					nodes[n] = piece.base[n];
+					nodes[n].translation.x += pos.x - piece.basePos.x;
+					nodes[n].translation.y += pos.y - piece.basePos.y;
+					nodes[n].translation.z += pos.z - piece.basePos.z;
+				}
+				continue;
+			}
 			int collapsed = 0;
 			for (int n = 0; n < piece.nodeCount; n++)
 			{
@@ -506,9 +592,12 @@ void Gore::PreRender()
 				dst->scale = 0.f;
 				collapsed++;
 			}
-			if (!piece.logged && Game::instance.c_GoreLog->Value())
-				Logger::log << "[Gore] piece " << std::hex << piece.object << std::dec << " collapse applied to " << collapsed << " of " << count << " nodes" << std::endl;
-			piece.logged = true;
+			if (Game::instance.c_GoreLog->Value())
+				Logger::log << "[Gore] piece " << std::hex << piece.object << std::dec << " collapse applied to " << collapsed << " of " << count << " nodes, frozen" << std::endl;
+			for (int n = 0; n < piece.nodeCount; n++) piece.base[n] = nodes[n];
+			piece.basePos = pos;
+			piece.frozen = true;
+			F<uint32_t>(obj, O_FLAGS) |= (1u << 23); // do not recompute node matrices
 		}
 	}
 	__except (EXCEPTION_EXECUTE_HANDLER)
