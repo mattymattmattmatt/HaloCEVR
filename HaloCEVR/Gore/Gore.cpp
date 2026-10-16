@@ -287,11 +287,19 @@ namespace
 		F<uint32_t>(damage, D_OWNER_OBJECT) = NONE;
 		F<float>(damage, D_SCALE) = 50.f;
 		F<float>(obj, O_BODY) = 0.0001f;
+		F<float>(obj, O_BODY + 4) = 0.f; // shield (an Elite's would soak the kill)
 		bInternal = true;
 		CauseDamage(damage, id);
 		bInternal = false;
 		obj = GetObject(id);
 		if (!obj) { piece->object = NONE; return; }
+		if (!(F<uint16_t>(obj, O_DAMAGE_FLAGS) & 4))
+		{
+			// It didn't die (an immune damage type): never leave a standing copy.
+			DeleteObject(id);
+			piece->object = NONE;
+			return;
+		}
 		F<uint16_t>(obj, O_DAMAGE_FLAGS) |= (1 << 11); // cannot take damage: no second gib
 		F<uint32_t>(obj, O_FLAGS) |= (1u << 17);       // never collected as garbage early
 
