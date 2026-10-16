@@ -104,6 +104,7 @@ namespace
 	// shrunk to nothing at its joint every frame before the scene is drawn.
 	struct Piece { uint32_t object = NONE; ULONGLONG born = 0; int nodeCount = 0; int8_t collapse[MAX_NODES]; bool logged = false;
 		float vel[3]{}; float spin[3]{}; int reapply = 0; int keep = -1;
+		uint32_t trailEffect = NONE; uint32_t splatEffect = NONE; int ticks = 0; bool airborne = true; int splats = 0;
 		// Once frozen the game stops rebuilding its nodes (object flag 23) and
 		// we own them: the collapsed pose, moved along with the object.
 	};
@@ -208,6 +209,14 @@ namespace
 		if (scale <= 0.f) scale = 1.f;
 		if (!(F<uint32_t>(damage, D_FLAGS) & 1)) // only blasts and vehicle hits
 		{
+			// A stuck plasma grenade kills with its 'attached' damage, not the blast.
+			std::string what = TagPath(F<uint32_t>(damage, D_DEFINITION));
+			for (char& c : what) c = (char)std::tolower((unsigned char)c);
+			if (what.find("grenade") != std::string::npos && what.find("attached") != std::string::npos)
+			{
+				if (Game::instance.c_GoreLog->Value()) Logger::log << "[Gore] stuck grenade kill on " << TagPath(F<uint32_t>(unit, 0)) << ": gibs" << std::endl;
+				return 2.0f;
+			}
 			if (Game::instance.c_GoreLog->Value())
 				Logger::log << "[Gore] kill on " << TagPath(F<uint32_t>(unit, 0)) << " by " << TagPath(F<uint32_t>(damage, D_DEFINITION))
 					<< " is not a blast (flags " << std::hex << F<uint32_t>(damage, D_FLAGS) << std::dec << "): no gib" << std::endl;
@@ -236,7 +245,7 @@ namespace
 				lastVehicleHit = true;
 				lastVehicleVel[0] = v[0]; lastVehicleVel[1] = v[1]; lastVehicleVel[2] = v[2];
 				float speed = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]) * 30.f;
-				float threshold = type->vehicleThreshold * scale;
+				float threshold = type->vehicleThreshold / scale; // (>1: slower hits gib)
 				return threshold > 0.f ? speed / threshold : 0.f;
 			}
 		}
@@ -251,10 +260,11 @@ namespace
 		z = z < bottom ? bottom : (z > top ? top : z);
 		float dx = epi[0] - c[0], dy = epi[1] - c[1], dz = z - c[2];
 		float measure = sqrtf(dx * dx + dy * dy + dz * dz) * METRES_PER_WU;
-		float threshold = type->gibRadius * sqrtf(full / FRAG_DAMAGE) / scale;
+		// The port's radii, widened for retail's plasma (3-5 m kills): x1.6.
+		float threshold = 1.6f * type->gibRadius * sqrtf(full / FRAG_DAMAGE) * scale;
 		float force = threshold / (measure > 0.15f ? measure : 0.15f);
 		// The port's rule: a blast within 2 m (a stuck grenade) always gibs.
-		if (measure < 2.0f / scale && force < 1.5f) force = 1.5f;
+		if (measure < 2.0f * scale && force < 1.5f) force = 1.5f;
 		if (Game::instance.c_GoreLog->Value())
 			Logger::log << "[Gore] blast on " << TagPath(F<uint32_t>(unit, 0)) << ": " << TagPath(F<uint32_t>(damage, D_DEFINITION))
 				<< " full " << full << (jpt ? "" : " (no tag)") << ", " << measure << " m, gibs within " << threshold << " m, force " << force << std::endl;
@@ -390,7 +400,7 @@ namespace
 		}
 	}
 
-	void SpawnCopy(uint8_t* unit, uint32_t unitID, uint32_t regionMask, const Pending& p, uint32_t blood, const int8_t* collapse = nullptr, int nodeCount = 0, int keepNode = -1)
+	void SpawnCopy(uint8_t* unit, uint32_t unitID, uint32_t regionMask, const Pending& p, uint32_t blood, const int8_t* collapse = nullptr, int nodeCount = 0, int keepNode = -1, uint32_t splat = NONE)
 	{
 		HaloID tag; *reinterpret_cast<uint32_t*>(&tag) = F<uint32_t>(unit, 0);
 		HaloID none; none.index = 0xFFFF; none.id = 0xFFFF;
@@ -508,6 +518,9 @@ namespace
 				<< (p.vehicleHit ? " (vehicle)" : "") << std::endl;
 
 		EffectOnObject(blood, id, "body");
+		piece->trailEffect = blood;
+		piece->splatEffect = splat != NONE ? splat : blood;
+		piece->ticks = 0; piece->airborne = true; piece->splats = 0;
 		if (bCollapseFailed || !collapse) F<uint32_t>(obj, O_FLAGS) |= 1u; // never a standing whole copy
 	}
 
@@ -571,7 +584,7 @@ namespace
 					else collapse[n] = (int8_t)rootNodes[owner[n] - 1];
 				}
 				SpawnCopy(GetObject(p.unit), p.unit, 0xFF, p, trail != NONE ? trail : blood, collapse, nodeCount,
-					piece ? rootNodes[piece - 1] : NodeFind(model, "bip01 spine"));
+					piece ? rootNodes[piece - 1] : NodeFind(model, "bip01 spine"), blood);
 				parts++;
 			}
 		}
@@ -663,6 +676,26 @@ void Gore::PostObjectUpdate(uint32_t objectID)
 						Logger::log << "[Gore] piece " << std::hex << objectID << std::dec << " lost its speed on update: re-applied" << std::endl;
 				}
 				piece.reapply--;
+			}
+			// Blood: drips while it flies (the body's own localized blood
+			// effect, so the colour is the species'), and a splat each time
+			// it lands (the body's area blood effect; the game's effect puts
+			// its decals on the level itself).
+			piece.ticks++;
+			{
+				float* v = &F<float>(obj, O_VELOCITY);
+				float speed2 = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
+				bool onGround = (F<uint32_t>(obj, O_FLAGS) & 2u) != 0;
+				if (piece.ticks < 150 && speed2 > 0.0009f && piece.ticks % 6 == 0)
+					EffectOnObject(piece.trailEffect, objectID, "body");
+				if (piece.airborne && onGround && piece.ticks > 3 && piece.splats < 3)
+				{
+					EffectOnObject(piece.splatEffect, objectID, "body");
+					piece.splats++;
+					if (Game::instance.c_GoreLog->Value())
+						Logger::log << "[Gore] piece " << std::hex << objectID << std::dec << " landed: splat " << piece.splats << std::endl;
+				}
+				piece.airborne = !onGround;
 			}
 			int collapsed = Collapse(piece, obj);
 			if (collapsed >= 0 && piece.keep >= 0 && piece.keep < piece.nodeCount)
