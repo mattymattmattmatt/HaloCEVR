@@ -90,7 +90,7 @@ namespace
 	};
 	constexpr int NUM_PARTS = 6; // + torso
 
-	struct Pending { uint32_t unit = NONE; float force = 0.f; float dir[3]{}; uint8_t damage[D_SIZE]{}; ULONGLONG time = 0; };
+	struct Pending { uint32_t unit = NONE; float force = 0.f; float dir[3]{}; bool vehicleHit = false; float vehicleVel[3]{}; uint8_t damage[D_SIZE]{}; ULONGLONG time = 0; };
 	constexpr int MAX_NODES = 64;
 	constexpr int O_NODE_MATRICES = 0x1F0;  // short size, short offset from the object
 	constexpr int O_NEXT_OBJECT = 0x114;
@@ -103,6 +103,7 @@ namespace
 	// A piece: a dead copy of the whole unit; each node not in the piece is
 	// shrunk to nothing at its joint every frame before the scene is drawn.
 	struct Piece { uint32_t object = NONE; ULONGLONG born = 0; int nodeCount = 0; int8_t collapse[MAX_NODES]; bool logged = false;
+		float vel[3]{}; float spin[3]{}; int reapply = 0;
 		// Once frozen the game stops rebuilding its nodes (object flag 23) and
 		// we own them: the collapsed pose, moved along with the object.
 	};
@@ -122,6 +123,8 @@ namespace
 	Piece pieces[MAX_PIECES];
 
 	bool bActive = false;
+	bool lastVehicleHit = false;
+	float lastVehicleVel[3]{};
 	int activePieces = 0;
 	bool bCollapseFailed = false;
 	bool bInternal = false;    // our own kill damage on a piece: not a gib
@@ -224,6 +227,8 @@ namespace
 			if (dx * dx + dy * dy + dz * dz < 0.0001f)
 			{
 				float* v = &F<float>(vehicle, O_VELOCITY);
+				lastVehicleHit = true;
+				lastVehicleVel[0] = v[0]; lastVehicleVel[1] = v[1]; lastVehicleVel[2] = v[2];
 				float speed = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]) * 30.f;
 				float threshold = type->vehicleThreshold * scale;
 				return threshold > 0.f ? speed / threshold : 0.f;
@@ -374,11 +379,23 @@ namespace
 		}
 	}
 
-	void SpawnCopy(uint8_t* unit, uint32_t unitID, uint32_t regionMask, const Pending& p, uint32_t blood, const int8_t* collapse = nullptr, int nodeCount = 0)
+	void SpawnCopy(uint8_t* unit, uint32_t unitID, uint32_t regionMask, const Pending& p, uint32_t blood, const int8_t* collapse = nullptr, int nodeCount = 0, int keepNode = -1)
 	{
 		HaloID tag; *reinterpret_cast<uint32_t*>(&tag) = F<uint32_t>(unit, 0);
 		HaloID none; none.index = 0xFFFF; none.id = 0xFFFF;
 		Vector3 pos = F<Vector3>(unit, O_POSITION);
+		// Where this piece's kept bone is in the world (the unit's node matrices).
+		Vector3 bone = F<Vector3>(unit, O_CENTRE);
+		{
+			int16_t size = F<int16_t>(unit, O_NODE_MATRICES), offset = F<int16_t>(unit, O_NODE_MATRICES + 2);
+			if (keepNode >= 0 && offset > 0 && keepNode < size / MATRIX_SIZE)
+				bone = reinterpret_cast<Transform*>(unit + offset)[keepNode].translation;
+		}
+		Vector3 centre = F<Vector3>(unit, O_CENTRE);
+		// Start a little toward the kept bone so the pieces don't share one spot.
+		pos.x += (bone.x - centre.x) * 0.35f;
+		pos.y += (bone.y - centre.y) * 0.35f;
+		pos.z += (bone.z - centre.z) * 0.2f;
 		HaloID created = Helpers::SpawnObject(tag, pos, none);
 		uint32_t id = *reinterpret_cast<uint32_t*>(&created);
 		uint8_t* obj = GetObject(id);
@@ -452,15 +469,31 @@ namespace
 		F<uint16_t>(obj, O_DAMAGE_FLAGS) |= (1 << 11); // cannot take damage: no second gib
 		F<uint32_t>(obj, O_FLAGS) |= (1u << 17);       // never collected as garbage early
 
+		// Each piece flies its own way (world units a tick): out from the blast
+		// along the line to its kept bone, or with the vehicle for a splatter,
+		// plus up and a random spread, all scaled by the force.
 		float force = p.force < 1.f ? 1.f : (p.force > 3.f ? 3.f : p.force);
-		float speed = force * Rand(0.05f, 0.12f);
-		float rnd[3] = { Rand(-1, 1), Rand(-1, 1), Rand(0, 1) };
+		float out[3];
+		const float* epi = reinterpret_cast<const float*>(p.damage + D_EPICENTER);
+		out[0] = bone.x - epi[0]; out[1] = bone.y - epi[1]; out[2] = bone.z - epi[2];
+		if (p.vehicleHit) { out[0] = bone.x - centre.x; out[1] = bone.y - centre.y; out[2] = bone.z - centre.z; }
+		float len = sqrtf(out[0] * out[0] + out[1] * out[1] + out[2] * out[2]);
+		if (len < 0.001f) { out[0] = p.dir[0]; out[1] = p.dir[1]; out[2] = p.dir[2]; len = 1.f; }
+		for (float& o : out) o /= len;
+		float speed = force * Rand(0.08f, 0.16f);
+		float vel[3];
+		for (int k = 0; k < 3; k++) vel[k] = out[k] * speed + Rand(-1.f, 1.f) * speed * 0.35f;
+		vel[2] += speed * Rand(0.3f, 0.7f) + 0.04f;
+		if (p.vehicleHit)
+			for (int k = 0; k < 3; k++) vel[k] += p.vehicleVel[k] * Rand(0.6f, 1.0f);
 		float* v = &F<float>(obj, O_VELOCITY);
-		v[0] += p.dir[0] * speed + rnd[0] * speed * 0.5f;
-		v[1] += p.dir[1] * speed + rnd[1] * speed * 0.5f;
-		v[2] += p.dir[2] * speed + rnd[2] * speed * 0.6f + 0.05f;
+		for (int k = 0; k < 3; k++) { v[k] = vel[k]; piece->vel[k] = vel[k]; }
 		float* w = &F<float>(obj, O_ANGULAR);
-		w[0] += Rand(-0.3f, 0.3f); w[1] += Rand(-0.3f, 0.3f); w[2] += Rand(-0.3f, 0.3f);
+		for (int k = 0; k < 3; k++) { piece->spin[k] = Rand(-0.4f, 0.4f) * force; w[k] = piece->spin[k]; }
+		piece->reapply = 3; // the first updates can kill a fresh corpse's speed
+		if (Game::instance.c_GoreLog->Value())
+			Logger::log << "[Gore] piece " << std::hex << id << std::dec << " node " << keepNode << " velocity " << vel[0] << " " << vel[1] << " " << vel[2]
+				<< (p.vehicleHit ? " (vehicle)" : "") << std::endl;
 
 		EffectOnObject(blood, id, "body");
 		if (bCollapseFailed || !collapse) F<uint32_t>(obj, O_FLAGS) |= 1u; // never a standing whole copy
@@ -525,7 +558,8 @@ namespace
 					else if (piece) collapse[n] = (int8_t)rootNodes[piece - 1];
 					else collapse[n] = (int8_t)rootNodes[owner[n] - 1];
 				}
-				SpawnCopy(GetObject(p.unit), p.unit, 0xFF, p, trail != NONE ? trail : blood, collapse, nodeCount);
+				SpawnCopy(GetObject(p.unit), p.unit, 0xFF, p, trail != NONE ? trail : blood, collapse, nodeCount,
+					piece ? rootNodes[piece - 1] : NodeFind(model, "bip01 spine"));
 				parts++;
 			}
 		}
@@ -605,6 +639,19 @@ void Gore::PostObjectUpdate(uint32_t objectID)
 			if (piece.object != objectID || piece.nodeCount == 0) continue;
 			uint8_t* obj = GetObject(objectID);
 			if (!obj) return;
+			if (piece.reapply > 0)
+			{
+				float* v = &F<float>(obj, O_VELOCITY);
+				float want = piece.vel[0] * piece.vel[0] + piece.vel[1] * piece.vel[1] + piece.vel[2] * piece.vel[2];
+				float have = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
+				if (have < want * 0.25f)
+				{
+					for (int k = 0; k < 3; k++) { v[k] = piece.vel[k]; F<float>(obj, O_ANGULAR + k * 4) = piece.spin[k]; }
+					if (Game::instance.c_GoreLog->Value())
+						Logger::log << "[Gore] piece " << std::hex << objectID << std::dec << " lost its speed on update: re-applied" << std::endl;
+				}
+				piece.reapply--;
+			}
 			int collapsed = Collapse(piece, obj);
 			if (!piece.logged)
 			{
@@ -711,6 +758,7 @@ void Gore::PostDamage(void* damage, uint32_t objectID, uint32_t preDeadFlag)
 	const UnitType* type = TypeOf(F<uint32_t>(unit, 0));
 	if (type->disabled) return;
 	uint8_t* d = reinterpret_cast<uint8_t*>(damage);
+	lastVehicleHit = false;
 	float force = GibForce(unit, d, type);
 	if (Game::instance.c_GoreLog->Value() && force > 0.f)
 		Logger::log << "[Gore] hit on " << TagPath(F<uint32_t>(unit, 0)) << " force " << force << (preDeadFlag == 2 ? " (corpse)" : "") << std::endl;
@@ -721,6 +769,8 @@ void Gore::PostDamage(void* damage, uint32_t objectID, uint32_t preDeadFlag)
 		if (p.unit != NONE) continue;
 		p.unit = objectID;
 		p.force = force;
+		p.vehicleHit = lastVehicleHit;
+		memcpy(p.vehicleVel, lastVehicleVel, sizeof(p.vehicleVel));
 		p.time = GetTickCount64();
 		memcpy(p.damage, d, D_SIZE);
 		float* dir = &F<float>(d, D_DIRECTION);
