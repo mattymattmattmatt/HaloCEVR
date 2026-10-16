@@ -344,9 +344,6 @@ namespace
 
 	void SweepDrops()
 	{
-		SweepDrops();
-		activePieces = 0;
-		for (Piece& piece : pieces) if (piece.object != NONE) activePieces++;
 		ULONGLONG now = GetTickCount64();
 		bool any = false;
 		for (Sweep& w : sweeps) if (w.until && now <= w.until) any = true; else w.until = 0;
@@ -746,6 +743,9 @@ void Gore::Update()
 			p.unit = NONE;
 			Gib(copy);
 		}
+		SweepDrops();
+		activePieces = 0;
+		for (Piece& piece : pieces) if (piece.object != NONE) activePieces++;
 		ULONGLONG now = GetTickCount64();
 		ULONGLONG life = (ULONGLONG)(Game::instance.c_GorePieceSeconds->Value() * 1000.f);
 		for (Piece& piece : pieces)
