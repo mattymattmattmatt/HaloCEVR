@@ -27,6 +27,7 @@
 #include "UI/UIRenderer.h"
 #include "Helpers/Version.h"
 #include "Helpers/Cutscene.h"
+#include "Gore/Gore.h"
 
 void Game::Init()
 {
@@ -376,6 +377,8 @@ void Game::PreDrawFrame(struct Renderer* renderer, float deltaTime)
 
 	inGameRenderer.DrawCoordinate(controller * Vector3(0.0f, 0.0f, 0.0f) * MetresToWorld(1.0f) + worldPos, handRotation3, 0.05f, false);
 #endif
+
+	Gore::Update();
 
 	vr->PreDrawFrame(renderer, deltaTime);
 }
@@ -1948,6 +1951,13 @@ void Game::SetupConfigs()
 	c_3DOFWeaponOffset = config.RegisterVector3("3DOFWeaponOffset", "This is a cosmetic setting for the position offset for the 3DOF weapon model. This has no impact on gameplay. (right, forward, up in metres). Use negative Z to lower the weapon", Vector3(0.0f, 0.0f, -0.08f));
 	c_3DOFWeaponSmoothingAmount = config.RegisterFloat("3DOFWeaponSmoothingAmount", "This is a cosmetic setting that controls the amount of smoothing applied to 3DOF weapon facing direction. This has no impact on gameplay. (0 is disabled, 2.0 is maximum, default is 1.5)", 1.5f);
 	c_3DOFScopeScale = config.RegisterFloat("3DOFScopeScale", "Width of the scope view in metres (3DOF mode)", 7.f);
+	// Gore (single player only; needs a game restart to change)
+	c_GoreEnabled = config.RegisterBool("GoreEnabled", "Strong explosions and fast vehicle hits blow enemies and marines apart into pieces with blood. Off = the game behaves exactly as without gore (restart the game after changing)", true);
+	c_GoreThresholdScale = config.RegisterFloat("GoreThresholdScale", "How easily bodies gib: above 1 gibs from further away and slower vehicles, below 1 needs closer blasts and faster hits", 1.0f);
+	c_GoreMaxPieces = config.RegisterInt("GoreMaxPieces", "Most gore pieces at once (6 to 256); when full the oldest piece goes first", 96);
+	c_GorePieceSeconds = config.RegisterFloat("GorePieceSeconds", "Seconds a gore piece stays before it is removed", 180.0f);
+	c_GoreHeadshots = config.RegisterBool("GoreHeadshots", "A killing sniper rifle headshot takes just the head off (not yet implemented in VR)", true);
+	c_GoreLog = config.RegisterBool("GoreLog", "Write every gore hit to the log, for testing", false);
 	// Weapon holster settings
 	c_EnableWeaponHolsters = config.RegisterBool("EnableWeaponHolsters", "When enabled Weapons can only be switched by using the 'SwitchWeapons' binding while the dominant hand is within distance of a holster", true);
 	c_LeftShoulderHolsterActivationDistance = config.RegisterFloat("LeftShoulderHolsterDistance", "How close your dominant hand must reach to the left shoulder holster to change weapons - effectively the holster's size. Higher = easier to reach, but more likely to trigger by accident. Lower = must reach closer, less likely to trigger by accident. <0 to disable", 0.3f);

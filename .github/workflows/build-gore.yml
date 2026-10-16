@@ -1,0 +1,31 @@
+name: Build (gore)
+
+on:
+  push:
+    branches: [gore]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: microsoft/setup-msbuild@v2
+      - name: Build Release Win32
+        shell: cmd
+        run: msbuild HaloCEVR.sln /m /p:Configuration=Release /p:Platform=x86 /p:PostBuildEventUseInBuild=false
+      - name: Package
+        shell: pwsh
+        run: |
+          $dll = Get-ChildItem -Recurse -Filter d3d9.dll | Where-Object { $_.FullName -match 'Release' } | Select-Object -First 1
+          if (-not $dll) { throw "d3d9.dll not built" }
+          New-Item -ItemType Directory -Force out | Out-Null
+          Copy-Item $dll.FullName out/
+          $pdb = Join-Path $dll.DirectoryName 'd3d9.pdb'
+          if (Test-Path $pdb) { Copy-Item $pdb out/ }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HaloCEVR-gore-d3d9
+          path: out/

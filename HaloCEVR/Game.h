@@ -407,5 +407,11 @@ public:
 	Vector3Property* c_3DOFWeaponOffset = nullptr;
 	FloatProperty* c_3DOFWeaponSmoothingAmount = nullptr;
 	FloatProperty* c_3DOFScopeScale = nullptr;
+	BoolProperty* c_GoreEnabled = nullptr;
+	FloatProperty* c_GoreThresholdScale = nullptr;
+	IntProperty* c_GoreMaxPieces = nullptr;
+	FloatProperty* c_GorePieceSeconds = nullptr;
+	BoolProperty* c_GoreHeadshots = nullptr;
+	BoolProperty* c_GoreLog = nullptr;
 };
 

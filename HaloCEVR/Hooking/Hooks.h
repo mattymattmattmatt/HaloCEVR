@@ -39,6 +39,8 @@ public:
 	DEFINE_HOOK_FULL(FireWeapon, void __cdecl, HaloID param1, short param2);
 	DEFINE_HOOK_FULL(ThrowGrenade, void __cdecl, HaloID param1, bool param2);
 	DEFINE_HOOK_FULL(MeleeDamage, void __cdecl, HaloID param1);
+	// Gore only: created and enabled when gore is on in the config.
+	DEFINE_HOOK_FULL(ObjectCauseDamage, void __cdecl, void* damage, uint32_t object, int32_t node, int32_t region, int32_t material, void* normal);
 	DEFINE_HOOK_FULL(DrawLoadingScreen2, void __fastcall, void* param1);
 	DEFINE_HOOK(DrawCinematicBars);
 	DEFINE_HOOK(DrawViewModel);

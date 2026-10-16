@@ -12,6 +12,7 @@
 #include "../Helpers/CmdLineArgs.h"
 
 #include "../Profiler.h"
+#include "../Gore/Gore.h"
 
 #define CREATEHOOK(Func) Func##.CreateHook(#Func, o.##Func##, &H_##Func##)
 #define RESOLVEINDIRECT(Name) ResolveIndirect(o.I_##Name, o.##Name)
@@ -57,6 +58,11 @@ void Hooks::InitHooks()
 	CREATEHOOK(FireWeapon);
 	CREATEHOOK(ThrowGrenade);
 	CREATEHOOK(MeleeDamage);
+	if (Game::instance.c_GoreEnabled->Value())
+	{
+		CREATEHOOK(ObjectCauseDamage);
+		Gore::Init();
+	}
 	CREATEHOOK(DrawLoadingScreen2);
 	CREATEHOOK(DrawCinematicBars);
 	CREATEHOOK(DrawViewModel);
@@ -116,6 +122,10 @@ void Hooks::EnableAllHooks()
 	FireWeapon.EnableHook();
 	ThrowGrenade.EnableHook();
 	MeleeDamage.EnableHook();
+	if (Gore::IsActive())
+	{
+		ObjectCauseDamage.EnableHook();
+	}
 	DrawLoadingScreen2.EnableHook();
 	DrawCinematicBars.EnableHook();
 	DrawViewModel.EnableHook();
@@ -837,6 +847,15 @@ void Hooks::H_MeleeDamage(HaloID param1)
 	MeleeDamage.Original(param1);
 
 	Game::instance.PostMeleeDamage(param1);
+}
+
+void Hooks::H_ObjectCauseDamage(void* damage, uint32_t object, int32_t node, int32_t region, int32_t material, void* normal)
+{
+	const uint32_t state = Gore::PreDamage(damage, object);
+
+	ObjectCauseDamage.Original(damage, object, node, region, material, normal);
+
+	Gore::PostDamage(damage, object, state);
 }
 
 void Hooks::H_DrawLoadingScreen2(void* param1)
