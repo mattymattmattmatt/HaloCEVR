@@ -90,7 +90,7 @@ namespace
 	};
 	constexpr int NUM_PARTS = 6; // + torso
 
-	struct Pending { uint32_t unit = NONE; float force = 0.f; float dir[3]{}; bool vehicleHit = false; float vehicleVel[3]{}; uint8_t damage[D_SIZE]{}; ULONGLONG time = 0; };
+	struct Pending { uint32_t unit = NONE; bool headshot = false; float force = 0.f; float dir[3]{}; bool vehicleHit = false; float vehicleVel[3]{}; uint8_t damage[D_SIZE]{}; ULONGLONG time = 0; };
 	constexpr int MAX_NODES = 64;
 	constexpr int O_NODE_MATRICES = 0x1F0;  // short size, short offset from the object
 	constexpr int O_NEXT_OBJECT = 0x114;
@@ -503,15 +503,23 @@ namespace
 		if (len < 0.001f) { out[0] = p.dir[0]; out[1] = p.dir[1]; out[2] = p.dir[2]; len = 1.f; }
 		for (float& o : out) o /= len;
 		float speed = force * Rand(0.08f, 0.16f);
+		if (p.headshot)
+		{
+			// The head flies along the bullet; the body just drops.
+			speed = keepNode >= 0 ? Rand(0.06f, 0.1f) : 0.f;
+			if (keepNode >= 0) { out[0] = p.dir[0]; out[1] = p.dir[1]; out[2] = p.dir[2]; }
+		}
 		float vel[3];
 		for (int k = 0; k < 3; k++) vel[k] = out[k] * speed + Rand(-1.f, 1.f) * speed * 0.35f;
 		vel[2] += speed * Rand(0.3f, 0.7f) + 0.04f;
 		if (p.vehicleHit)
 			for (int k = 0; k < 3; k++) vel[k] += p.vehicleVel[k] * Rand(0.6f, 1.0f);
+		if (p.headshot && keepNode < 0) vel[0] = vel[1] = vel[2] = 0.f; // the body drops where it stood
 		float* v = &F<float>(obj, O_VELOCITY);
 		for (int k = 0; k < 3; k++) { v[k] = vel[k]; piece->vel[k] = vel[k]; }
 		float* w = &F<float>(obj, O_ANGULAR);
 		for (int k = 0; k < 3; k++) { piece->spin[k] = Rand(-0.4f, 0.4f) * force; w[k] = piece->spin[k]; }
+		if (p.headshot && keepNode < 0) for (int k = 0; k < 3; k++) { piece->spin[k] = 0.f; w[k] = 0.f; }
 		piece->reapply = 3; // the first updates can kill a fresh corpse's speed
 		if (Game::instance.c_GoreLog->Value())
 			Logger::log << "[Gore] piece " << std::hex << id << std::dec << " node " << keepNode << " velocity " << vel[0] << " " << vel[1] << " " << vel[2]
@@ -574,17 +582,20 @@ namespace
 				owner[rootNodes[i]] = (int8_t)(i + 1);
 				MarkSubtree(model, F<int16_t>(nodes + rootNodes[i] * MOD2_NODE_SIZE, 0x22), owner, (int8_t)(i + 1));
 			}
-			for (int piece = 0; piece <= 5; piece++)
+			if (p.headshot) Logger::log << "[Gore] decapitating " << TagPath(def) << std::endl;
+			for (int piece = 0; piece <= (p.headshot ? 1 : 5); piece++)
 			{
 				int8_t collapse[MAX_NODES];
 				for (int n = 0; n < MAX_NODES; n++)
 				{
+					// A headshot's body keeps everything but the head's nodes.
+					if (p.headshot && piece == 0) { collapse[n] = (n < nodeCount && owner[n] == 1) ? (int8_t)rootNodes[0] : -1; continue; }
 					if (n >= nodeCount || owner[n] == piece) collapse[n] = -1;
 					else if (piece) collapse[n] = (int8_t)rootNodes[piece - 1];
 					else collapse[n] = (int8_t)rootNodes[owner[n] - 1];
 				}
 				SpawnCopy(GetObject(p.unit), p.unit, 0xFF, p, trail != NONE ? trail : blood, collapse, nodeCount,
-					piece ? rootNodes[piece - 1] : NodeFind(model, "bip01 spine"), blood);
+					piece ? rootNodes[piece - 1] : (p.headshot ? -1 : NodeFind(model, "bip01 spine")), blood);
 				parts++;
 			}
 		}
@@ -803,7 +814,51 @@ uint32_t Gore::PreDamage(void* damage, uint32_t objectID)
 	return F<uint16_t>(obj, O_DAMAGE_FLAGS) & 4 ? 2 : 1;
 }
 
-void Gore::PostDamage(void* damage, uint32_t objectID, uint32_t preDeadFlag)
+namespace
+{
+	// A sniper rifle kill on the head: the hit node is in the head's subtree
+	// (bip01 head and below), or, with no node, the hit point is by the head.
+	bool IsSniperHeadshot(uint8_t* unit, uint8_t* damage, int32_t node)
+	{
+		std::string what = TagPath(F<uint32_t>(damage, D_DEFINITION));
+		for (char& c : what) c = (char)std::tolower((unsigned char)c);
+		if (what.find("sniper") == std::string::npos) return false;
+		uint8_t* obje = TagData(F<uint32_t>(unit, 0));
+		uint8_t* model = obje ? TagData(F<uint32_t>(obje, OBJE_MODEL)) : nullptr;
+		if (!model) return false;
+		int head = NodeFind(model, "bip01 head");
+		if (head < 0) { Logger::log << "[Gore] sniper kill: model has no 'bip01 head'" << std::endl; return false; }
+		bool hit = false;
+		const char* how = "";
+		if (node >= 0 && node < MAX_NODES)
+		{
+			int8_t owner[MAX_NODES]{};
+			owner[head] = 1;
+			uint8_t* nodes = F<uint8_t*>(model, MOD2_NODES + 4);
+			MarkSubtree(model, F<int16_t>(nodes + head * MOD2_NODE_SIZE, 0x22), owner, 1);
+			hit = owner[node] == 1;
+			how = "node";
+		}
+		else
+		{
+			int16_t size = F<int16_t>(unit, O_NODE_MATRICES), offset = F<int16_t>(unit, O_NODE_MATRICES + 2);
+			if (offset > 0 && head < size / MATRIX_SIZE)
+			{
+				Vector3 h = reinterpret_cast<Transform*>(unit + offset)[head].translation;
+				const float* e = reinterpret_cast<const float*>(damage + D_EPICENTER);
+				float dx = e[0] - h.x, dy = e[1] - h.y, dz = e[2] - h.z;
+				hit = dx * dx + dy * dy + dz * dz < 0.25f * 0.25f; // within ~0.75 m
+				how = "hit point";
+			}
+		}
+		if (Game::instance.c_GoreLog->Value())
+			Logger::log << "[Gore] sniper kill on " << TagPath(F<uint32_t>(unit, 0)) << ": node " << node << " (" << how << ") "
+				<< (hit ? "is the head: decapitate" : "is not the head") << std::endl;
+		return hit;
+	}
+}
+
+void Gore::PostDamage(void* damage, uint32_t objectID, uint32_t preDeadFlag, int32_t node)
 {
 	if (!bActive || bInternal || !preDeadFlag || !damage) return;
 	uint8_t* unit = GetObject(objectID);
@@ -819,13 +874,21 @@ void Gore::PostDamage(void* damage, uint32_t objectID, uint32_t preDeadFlag)
 	float force = GibForce(unit, d, type);
 	if (Game::instance.c_GoreLog->Value() && force > 0.f)
 		Logger::log << "[Gore] hit on " << TagPath(F<uint32_t>(unit, 0)) << " force " << force << (preDeadFlag == 2 ? " (corpse)" : "") << std::endl;
-	if (force < 1.f) return;
+	bool headshot = false;
+	if (force < 1.f)
+	{
+		// Only the killing shot (not a corpse), behind GoreHeadshots.
+		if (preDeadFlag != 1 || !Game::instance.c_GoreHeadshots->Value() || !IsSniperHeadshot(unit, d, node)) return;
+		headshot = true;
+		force = 1.f;
+	}
 	for (Pending& p : pending) if (p.unit == objectID) return;
 	for (Pending& p : pending)
 	{
 		if (p.unit != NONE) continue;
 		p.unit = objectID;
 		p.force = force;
+		p.headshot = headshot;
 		p.vehicleHit = lastVehicleHit;
 		memcpy(p.vehicleVel, lastVehicleVel, sizeof(p.vehicleVel));
 		p.time = GetTickCount64();

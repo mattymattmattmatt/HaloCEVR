@@ -13,7 +13,7 @@ namespace Gore
 	// Around retail object_cause_damage (the hook runs the original between).
 	// PreDamage's result goes to PostDamage (the damage can nest).
 	uint32_t PreDamage(void* damage, uint32_t objectID);
-	void PostDamage(void* damage, uint32_t objectID, uint32_t state);
+	void PostDamage(void* damage, uint32_t objectID, uint32_t state, int32_t node = -1);
 
 	// Once per rendered frame (not per eye): spawns queued gibs, ages pieces.
 	void Update();

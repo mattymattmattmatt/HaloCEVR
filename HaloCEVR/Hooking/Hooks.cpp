@@ -871,7 +871,7 @@ void Hooks::H_ObjectCauseDamage(void* damage, uint32_t object, int32_t node, int
 
 	ObjectCauseDamage.Original(damage, object, node, region, material, normal);
 
-	Gore::PostDamage(damage, object, state);
+	Gore::PostDamage(damage, object, state, node);
 }
 
 void Hooks::H_DrawLoadingScreen2(void* param1)
