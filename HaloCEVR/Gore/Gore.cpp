@@ -57,6 +57,11 @@ namespace
 	constexpr int OBJE_MODEL = 0x34;        // tag_reference index
 	constexpr int OBJE_COLLISION = 0x7C;
 	constexpr int JPT_UPPER_BOUND = 0x1DC;
+	// damage_definition inside jpt!: category sits 0x12 before the upper bound
+	// (decompiled damage_effect_definitions.h layout, anchored on 0x1DC).
+	constexpr int JPT_CATEGORY = 0x1CA;
+	constexpr int16_t CAT_HIGHEXPLOSIVE = 4, CAT_MOUNTEDWEAPON = 8, CAT_SHOTGUN = 11;
+	constexpr uint32_t DFLAG_FROM_WEAPON = 1u << 3; // damage_data flags bit 3
 	constexpr int COLL_LOCALIZED_EFFECT = 0x7C;
 	constexpr int COLL_AREA_EFFECT = 0x90;
 	constexpr int COLL_DESTROYED_EFFECT = 0xC8;
@@ -90,7 +95,7 @@ namespace
 	};
 	constexpr int NUM_PARTS = 6; // + torso
 
-	struct Pending { uint32_t unit = NONE; bool headshot = false; float force = 0.f; float dir[3]{}; bool vehicleHit = false; float vehicleVel[3]{}; uint8_t damage[D_SIZE]{}; ULONGLONG time = 0; };
+	struct Pending { uint32_t unit = NONE; bool headshot = false; bool hunter = false; bool shotgun = false; bool player = false; float force = 0.f; float dir[3]{}; bool vehicleHit = false; float vehicleVel[3]{}; uint8_t damage[D_SIZE]{}; ULONGLONG time = 0; };
 	constexpr int MAX_NODES = 64;
 	constexpr int O_NODE_MATRICES = 0x1F0;  // short size, short offset from the object
 	constexpr int O_NEXT_OBJECT = 0x114;
@@ -102,7 +107,7 @@ namespace
 	static_assert(sizeof(Transform) == 52, "node matrix");          // scale, forward, left, up, position
 	// A piece: a dead copy of the whole unit; each node not in the piece is
 	// shrunk to nothing at its joint every frame before the scene is drawn.
-	struct Piece { uint32_t object = NONE; ULONGLONG born = 0; int nodeCount = 0; int8_t collapse[MAX_NODES]; bool logged = false;
+	struct Piece { uint32_t object = NONE; ULONGLONG born = 0; int nodeCount = 0; int8_t collapse[MAX_NODES]; bool logged = false; bool hunter = false; bool player = false;
 		float vel[3]{}; float spin[3]{}; int reapply = 0; int keep = -1;
 		uint32_t trailEffect = NONE; uint32_t splatEffect = NONE; int ticks = 0; bool airborne = true; int splats = 0;
 		// Once frozen the game stops rebuilding its nodes (object flag 23) and
@@ -112,7 +117,8 @@ namespace
 	// Weapons and equipment that existed when a body split; anything new
 	// near the split in the next 2 seconds is a piece's drop and goes.
 	struct Sweep { Vector3 at; ULONGLONG until = 0; };
-	constexpr int MAX_SWEEPS = 8;
+	constexpr int MAX_SWEEPS = 16;
+	constexpr int MAX_GIB_PIECES = 12; // sanity: no split may spawn more pieces than this
 	Sweep sweeps[MAX_SWEEPS];
 	constexpr int MAX_KNOWN = 1024;
 	uint32_t known[MAX_KNOWN];
@@ -122,6 +128,21 @@ namespace
 	constexpr int MAX_PIECES = 256;
 	Pending pending[MAX_PENDING];
 	Piece pieces[MAX_PIECES];
+
+	// Hunter direct-hit credit: 10 ticks at 30 ticks/s = 1/3 s. The shell's
+	// detonation, not its impact damage, usually lands the killing blow.
+	struct HunterHit { uint32_t unit = NONE; ULONGLONG time = 0; float dir[3]{}; float epi[3]{}; };
+	constexpr ULONGLONG HUNTER_WINDOW_MS = 333;
+	constexpr int MAX_HUNTER_HITS = 8;
+	HunterHit hunterHits[MAX_HUNTER_HITS];
+	float lastHunterDir[3] = { 0.f, 0.f, 1.f };
+
+	// Shotgun pellets aggregated per blast: 6 ticks = 200 ms. The first
+	// pellet captures the clear shooter-to-victim distance.
+	struct ShotgunBlast { uint32_t victim = NONE; uint32_t owner = NONE; uint32_t def = NONE; ULONGLONG first = 0, last = 0; int pellets = 0; bool decided = false; float distance = 0.f; };
+	constexpr ULONGLONG SHOTGUN_WINDOW_MS = 200;
+	constexpr int MAX_SHOTGUN_BLASTS = 16;
+	ShotgunBlast shotgunBlasts[MAX_SHOTGUN_BLASTS];
 
 	bool bActive = false;
 	bool lastVehicleHit = false;
@@ -169,6 +190,133 @@ namespace
 		for (const UnitType& t : unitTypes)
 			if (!*t.path || path.find(t.path) != std::string::npos) return &t;
 		return &unitTypes[_countof(unitTypes) - 1];
+	}
+
+	std::string LowerPath(uint32_t tag) { std::string v = TagPath(tag) ? TagPath(tag) : ""; for (char& c : v) c = (char)std::tolower((unsigned char)c); return v; }
+	bool IsHunterUnit(uint8_t* unit) { return LowerPath(F<uint32_t>(unit, 0)).find("hunter") != std::string::npos; }
+	// Pure machines have no flesh to gib: Sentinels, monitors (343 Guilty
+	// Spark), Constructors, Enforcers. They only reach gore via the ""
+	// catch-all species entry, whose blast rules then chain: a Sentinel's
+	// death explosion gibs its neighbours, each into 6 more copies (~50).
+	bool IsMachineUnit(uint8_t* unit)
+	{
+		std::string path = LowerPath(F<uint32_t>(unit, 0));
+		return path.find("sentinel") != std::string::npos || path.find("monitor") != std::string::npos ||
+			path.find("guilty") != std::string::npos || path.find("constructor") != std::string::npos ||
+			path.find("enforcer") != std::string::npos;
+	}
+	// The local player's unit, from the player table - the old check on
+	// the unit's player field (0x218) did NOT stop the Chief gibbing
+	// (session log: cyborg pieces carrying frag 4 + rifle/pistol drops).
+	bool IsPlayerUnit(uint32_t objectID)
+	{
+		HaloID local;
+		return Helpers::GetLocalPlayerID(local) && *reinterpret_cast<uint32_t*>(&local) == objectID;
+	}
+	// -1 when the jpt! tag is unreadable: callers fall back to the tag path.
+	int16_t DamageCategory(uint8_t* damage)
+	{
+		uint8_t* jpt = TagData(F<uint32_t>(damage, D_DEFINITION));
+		if (!jpt) return -1;
+		int16_t c = F<int16_t>(jpt, JPT_CATEGORY);
+		return (c >= 0 && c <= CAT_SHOTGUN) ? c : -1;
+	}
+
+	// Runs before each damage lands (PreDamage): remember scorpion shell
+	// direct hits on Hunters, and aggregate shotgun pellets per blast.
+	void RecordPreDamage(uint8_t* unit, uint32_t unitID, uint8_t* d)
+	{
+		ULONGLONG now = GetTickCount64();
+		bool dead = (F<uint16_t>(unit, O_DAMAGE_FLAGS) & 4) != 0;
+		if (!dead && IsHunterUnit(unit))
+		{
+			// Decisive logging: EVERY damage event on a Hunter, raw.
+			std::string what = LowerPath(F<uint32_t>(d, D_DEFINITION));
+			uint32_t flags = F<uint32_t>(d, D_FLAGS);
+			int16_t cat = DamageCategory(d);
+			bool scorpion = what.find("scorpion") != std::string::npos;
+			bool aoe = (flags & 1) != 0;
+			float* epi = &F<float>(d, D_EPICENTER);
+			float* cen = &F<float>(unit, O_CENTRE);
+			float radius = F<float>(unit, O_RADIUS);
+			float dx = epi[0]-cen[0], dy = epi[1]-cen[1], dz = epi[2]-cen[2];
+			float dCentre = sqrtf(dx*dx+dy*dy+dz*dz);
+			float clear = dCentre - radius; // <0: epicentre inside the bounding sphere
+			uint32_t ownerID = F<uint32_t>(d, D_OWNER_OBJECT);
+			uint8_t* ownerObj = ownerID != NONE ? GetObject(ownerID) : nullptr;
+			bool tankOn = Game::instance.c_GoreHunterTank && Game::instance.c_GoreHunterTank->Value();
+			// Chosen direct-hit signals (retail gives a shell NO separate
+			// non-AoE impact event on the unit - the log of 2026-10-17 shows
+			// only 'vehicles\\scorpion\\shell explosion' AoE plus a generic
+			// 'weapons\\frag grenade\\shock wave' event from the same blast):
+			//  A) legacy: scorpion, not AoE, from a weapon, explosive/mounted
+			//     category (coax bullet excluded; unreadable cat falls back);
+			//  B) geometric: scorpion AoE whose epicentre is at the Hunter's
+			//     body (inside its bounding sphere, or within 0.30 wu past it).
+			// A grenade creates neither: its tag is not scorpion.
+			bool directA = scorpion && !aoe && (flags & DFLAG_FROM_WEAPON) && (cat < 0 || cat == CAT_HIGHEXPLOSIVE || cat == CAT_MOUNTEDWEAPON);
+			bool directB = scorpion && aoe && clear <= 0.30f;
+			bool record = tankOn && (directA || directB);
+			if (Game::instance.c_GoreLog->Value())
+				Logger::log << "[Gore] hunter damage: '" << TagPath(F<uint32_t>(d, D_DEFINITION)) << "' cat " << (int)cat
+					<< " flags 0x" << std::hex << flags << std::dec << " aoe " << (aoe ? 1 : 0)
+					<< " owner " << (ownerObj ? TagPath(F<uint32_t>(ownerObj, 0)) : "(none)") << " type " << (ownerObj ? (int)F<uint16_t>(ownerObj, O_TYPE) : -1)
+					<< " epi-centre " << dCentre << " wu, clear " << clear << " wu (radius " << radius << ")"
+					<< " GoreHunterTank " << (tankOn ? 1 : 0) << (record ? " -> DIRECT HIT recorded" : (scorpion ? " -> scorpion, not direct" : " -> not scorpion")) << std::endl;
+			if (record)
+			{
+				HunterHit* slot = nullptr;
+				for (HunterHit& h : hunterHits) if (h.unit == unitID) { slot = &h; break; }
+				if (!slot) for (HunterHit& h : hunterHits) if (h.unit == NONE || now - h.time > HUNTER_WINDOW_MS) { slot = &h; break; }
+				if (!slot) slot = &hunterHits[0];
+				slot->unit = unitID; slot->time = now;
+				for (int k = 0; k < 3; k++) slot->epi[k] = epi[k];
+				float* dir = &F<float>(d, D_DIRECTION);
+				float len = sqrtf(dir[0]*dir[0]+dir[1]*dir[1]+dir[2]*dir[2]);
+				if (len > 0.0001f) for (int k=0;k<3;k++) slot->dir[k]=dir[k]/len;
+				else if (directB) { // an AoE blast's way: from epicentre into the body
+					float bx = -dx, by = -dy, bz = -dz; float bl = sqrtf(bx*bx+by*by+bz*bz);
+					if (bl > 0.0001f) { slot->dir[0]=bx/bl; slot->dir[1]=by/bl; slot->dir[2]=bz/bl; }
+					else { slot->dir[0]=slot->dir[1]=0.f; slot->dir[2]=1.f; }
+				}
+				else { slot->dir[0]=slot->dir[1]=0.f; slot->dir[2]=1.f; }
+			}
+		}
+		if (!dead && Game::instance.c_GoreShotgun && Game::instance.c_GoreShotgun->Value() &&
+			F<uint16_t>(unit, O_TYPE) == 0 && F<uint32_t>(unit, O_PARENT) == NONE)
+		{
+			int16_t cat = DamageCategory(d);
+			if (cat == CAT_SHOTGUN || LowerPath(F<uint32_t>(d, D_DEFINITION)).find("shotgun") != std::string::npos)
+			{
+				uint32_t owner = F<uint32_t>(d, D_OWNER_OBJECT);
+				uint8_t* shooter = (owner != NONE && owner != unitID) ? GetObject(owner) : nullptr;
+				if (shooter && F<uint16_t>(shooter, O_TYPE) == 0)
+				{
+					uint32_t def = F<uint32_t>(d, D_DEFINITION);
+					ShotgunBlast* blast = nullptr; ShotgunBlast* freeSlot = nullptr;
+					for (ShotgunBlast& b : shotgunBlasts)
+					{
+						if (!freeSlot && (b.victim == NONE || now - b.last > SHOTGUN_WINDOW_MS)) freeSlot = &b;
+						if (b.victim == unitID && b.owner == owner && b.def == def && now - b.last <= SHOTGUN_WINDOW_MS) blast = &b;
+					}
+					if (!blast)
+					{
+						blast = freeSlot;
+						if (!blast) return;
+						blast->victim = unitID; blast->owner = owner; blast->def = def;
+						blast->first = now; blast->pellets = 0; blast->decided = false;
+						float* c1 = &F<float>(shooter, O_CENTRE); float* c2 = &F<float>(unit, O_CENTRE);
+						float dx=c1[0]-c2[0], dy=c1[1]-c2[1], dz=c1[2]-c2[2];
+						float dist = sqrtf(dx*dx+dy*dy+dz*dz) * METRES_PER_WU -
+							(F<float>(shooter, O_RADIUS) + F<float>(unit, O_RADIUS)) * METRES_PER_WU;
+						blast->distance = dist < 0.f ? 0.f : dist;
+						if (Game::instance.c_GoreLog->Value())
+							Logger::log << "[Gore] shotgun blast tracked on " << TagPath(F<uint32_t>(unit, 0)) << ": clear distance " << blast->distance << " m (range " << (Game::instance.c_GoreShotgunRange ? Game::instance.c_GoreShotgunRange->Value() : 2.f) << " m)" << std::endl;
+					}
+					blast->last = now; blast->pellets++;
+				}
+			}
+		}
 	}
 
 	void DeleteObject(uint32_t id)
@@ -271,6 +419,8 @@ namespace
 		return force;
 	}
 
+	void SnapshotWeapons(const Vector3& at, ULONGLONG durationMs = 10000);
+
 	Piece* NewPiece()
 	{
 		int maximum = Game::instance.c_GoreMaxPieces->Value();
@@ -281,6 +431,7 @@ namespace
 			if (pieces[i].object == NONE || !GetObject(pieces[i].object)) { pieces[i].object = NONE; return &pieces[i]; }
 			if (oldest < 0 || pieces[i].born < pieces[oldest].born) oldest = i;
 		}
+		if (uint8_t* oldObj = GetObject(pieces[oldest].object)) SnapshotWeapons(F<Vector3>(oldObj, O_POSITION));
 		DeleteObject(pieces[oldest].object);
 		pieces[oldest].object = NONE;
 		return &pieces[oldest];
@@ -352,7 +503,7 @@ namespace
 		return false;
 	}
 
-	void SnapshotWeapons(const Vector3& at)
+	void SnapshotWeapons(const Vector3& at, ULONGLONG durationMs)
 	{
 		ObjectTable& table = Helpers::GetObjectTable();
 		knownCount = 0;
@@ -365,7 +516,7 @@ namespace
 				known[knownCount++] = (uint32_t(d.id) << 16) | uint32_t(i);
 		}
 		for (Sweep& w : sweeps)
-			if (w.until == 0 || GetTickCount64() > w.until) { w.at = at; w.until = GetTickCount64() + 3000; return; }
+			if (w.until == 0 || GetTickCount64() > w.until) { w.at = at; w.until = GetTickCount64() + durationMs; return; }
 	}
 
 	void SweepDrops()
@@ -396,6 +547,56 @@ namespace
 					DeleteObject(id);
 					break;
 				}
+			}
+		}
+	}
+
+	// Delete EVERY object parented to a piece, by scanning the object
+	// table. The old first-child-chain walk logged 'removed 0' for the
+	// Chief's copies: held weapons are not reliably that chain, so each
+	// copy kept the player loadout and dropped it on death.
+	int DeleteChildrenOf(uint32_t pieceID)
+	{
+		int removed = 0;
+		ObjectTable& table = Helpers::GetObjectTable();
+		for (int i = 0; table.elements && i < table.currentSize; i++)
+		{
+			ObjectDatum& d = table.elements[i];
+			if (!d.dynamicObject || d.id == 0) continue;
+			uint8_t* o = reinterpret_cast<uint8_t*>(d.dynamicObject);
+			if (F<uint32_t>(o, O_PARENT) != pieceID) continue;
+			uint32_t childID = (uint32_t(d.id) << 16) | uint32_t(i);
+			if (Game::instance.c_GoreLog->Value())
+				Logger::log << "[Gore] stripped a piece's attached " << TagPath(F<uint32_t>(o, 0)) << " (type " << F<uint16_t>(o, O_TYPE) << ")" << std::endl;
+			DeleteObject(childID);
+			removed++;
+		}
+		return removed;
+	}
+
+	// Fresh loose drops near a point (not in the pre-gib snapshot): a
+	// piece's death/expiry drops. The original body's own death drop
+	// predates the snapshot, so it is in known[] and survives - exactly
+	// one normal drop set remains.
+	void DeleteFreshLooseNear(const Vector3& at, float radius)
+	{
+		ObjectTable& table = Helpers::GetObjectTable();
+		for (int i = 0; table.elements && i < table.currentSize; i++)
+		{
+			ObjectDatum& d = table.elements[i];
+			if (!d.dynamicObject || d.id == 0) continue;
+			uint8_t* o = reinterpret_cast<uint8_t*>(d.dynamicObject);
+			if (!IsLooseItem(o)) continue;
+			uint32_t id = (uint32_t(d.id) << 16) | uint32_t(i);
+			bool old = false;
+			for (int k = 0; k < knownCount && !old; k++) old = known[k] == id;
+			if (old) continue;
+			Vector3 pos = F<Vector3>(o, O_POSITION);
+			float dx = pos.x - at.x, dy = pos.y - at.y, dz = pos.z - at.z;
+			if (dx * dx + dy * dy + dz * dz < radius * radius)
+			{
+				Logger::log << "[Gore] removed a piece's dropped " << TagPath(F<uint32_t>(o, 0)) << " (type " << F<uint16_t>(o, O_TYPE) << ")" << std::endl;
+				DeleteObject(id);
 			}
 		}
 	}
@@ -434,16 +635,9 @@ namespace
 
 		// A unit made this way can come with its starting weapons: anything
 		// attached goes before the kill, or the death drops it on the floor.
-		int removed = 0;
-		for (int guard = 0; guard < 16; guard++)
-		{
-			uint32_t child = F<uint32_t>(obj, O_FIRST_CHILD);
-			if (child == NONE || !GetObject(child)) break;
-			DeleteObject(child);
-			removed++;
-			obj = GetObject(id);
-			if (!obj) { piece->object = NONE; return; }
-		}
+		int removed = DeleteChildrenOf(id);
+		obj = GetObject(id);
+		if (!obj) { piece->object = NONE; return; }
 		if (F<uint16_t>(obj, O_TYPE) == 0)
 		{
 			if (Game::instance.c_GoreLog->Value())
@@ -488,6 +682,14 @@ namespace
 			piece->object = NONE;
 			return;
 		}
+		{ // anything the kill itself shook loose (drops spawn during death)
+			int stripped = DeleteChildrenOf(id);
+			DeleteFreshLooseNear(F<Vector3>(obj, O_POSITION), 2.f);
+			if (stripped && Game::instance.c_GoreLog->Value())
+				Logger::log << "[Gore] piece " << std::hex << id << std::dec << ": stripped " << stripped << " more attached objects after its kill" << std::endl;
+			obj = GetObject(id);
+			if (!obj) { piece->object = NONE; return; }
+		}
 		F<uint16_t>(obj, O_DAMAGE_FLAGS) |= (1 << 11); // cannot take damage: no second gib
 		F<uint32_t>(obj, O_FLAGS) |= (1u << 17);       // never collected as garbage early
 
@@ -509,6 +711,7 @@ namespace
 			speed = keepNode >= 0 ? Rand(0.06f, 0.1f) : 0.f;
 			if (keepNode >= 0) { out[0] = p.dir[0]; out[1] = p.dir[1]; out[2] = p.dir[2]; }
 		}
+		if (p.shotgun || p.hunter) { out[0] = p.dir[0]; out[1] = p.dir[1]; out[2] = p.dir[2]; } // pieces scatter the shot's / shell's way
 		float vel[3];
 		for (int k = 0; k < 3; k++) vel[k] = out[k] * speed + Rand(-1.f, 1.f) * speed * 0.35f;
 		vel[2] += speed * Rand(0.3f, 0.7f) + 0.04f;
@@ -528,7 +731,7 @@ namespace
 		EffectOnObject(blood, id, "body");
 		piece->trailEffect = blood;
 		piece->splatEffect = splat != NONE ? splat : blood;
-		piece->ticks = 0; piece->airborne = true; piece->splats = 0;
+		piece->ticks = 0; piece->airborne = true; piece->splats = 0; piece->hunter = p.hunter; piece->player = p.player;
 		if (bCollapseFailed || !collapse) F<uint32_t>(obj, O_FLAGS) |= 1u; // never a standing whole copy
 	}
 
@@ -537,6 +740,11 @@ namespace
 		uint8_t* unit = GetObject(p.unit);
 		if (!unit || F<uint16_t>(unit, O_TYPE) != 0) return;
 		uint32_t def = F<uint32_t>(unit, 0);
+		if (IsMachineUnit(unit))
+		{
+			if (Game::instance.c_GoreLog->Value()) Logger::log << "[Gore] " << TagPath(def) << " machine/not organic, no gib" << std::endl;
+			return;
+		}
 		uint8_t* obje = TagData(def);
 		if (!obje) return;
 		uint8_t* model = TagData(F<uint32_t>(obje, OBJE_MODEL));
@@ -550,6 +758,15 @@ namespace
 
 		// The burst where the unit stood, before it goes.
 		EffectOnObject(blood, p.unit, "body");
+		// A Hunter carries a lot of (orange, from its own collision effects)
+		// blood: three more bursts at the split. VR blood is effect-only -
+		// no decal API is ported - so extra bursts stand in for bigger splats.
+		if (p.hunter)
+		{
+			for (int b = 0; b < 3; b++) EffectOnObject(blood, p.unit, "body");
+			if (Game::instance.c_GoreLog->Value())
+				Logger::log << "[Gore] hunter tank gib: 3 extra blood bursts at the split on " << TagPath(def) << std::endl;
+		}
 
 		int parts = 0;
 		uint32_t used = 0;
@@ -610,13 +827,21 @@ namespace
 				used |= masks[part];
 				parts++;
 			}
+			// Safety cap: a model whose split would spawn more than
+			// MAX_GIB_PIECES pieces aborts to a normal death + blood
+			// only, so no weird model can ever explode into dozens.
+			if (parts > MAX_GIB_PIECES)
+			{
+				Logger::log << "[Gore] " << TagPath(def) << ": split would spawn " << parts << " pieces (cap " << MAX_GIB_PIECES << "): aborting gib, blood only" << std::endl;
+				parts = 0;
+			}
 			if (parts >= 2)
 			{
 				for (int part = 0; part < NUM_PARTS; part++)
 					if (masks[part]) SpawnCopy(GetObject(p.unit), p.unit, masks[part], p, trail != NONE ? trail : blood);
 			}
 		}
-		Logger::log << "[Gore] " << TagPath(def) << " came apart into " << parts << " pieces (" << (bones ? "bones" : "regions") << "), force " << p.force << std::endl;
+		Logger::log << "[Gore] " << TagPath(def) << " came apart into " << parts << " pieces (" << (bones ? "bones" : "regions") << "), force " << p.force << (p.hunter ? " (hunter tank gib)" : "") << (p.shotgun ? " (shotgun point-blank)" : "") << (p.player ? " (player)" : "") << std::endl;
 
 		// The corpse goes when it split; a one-region model just bleeds and stays.
 		if (parts >= 2)
@@ -697,11 +922,14 @@ void Gore::PostObjectUpdate(uint32_t objectID)
 				float* v = &F<float>(obj, O_VELOCITY);
 				float speed2 = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
 				bool onGround = (F<uint32_t>(obj, O_FLAGS) & 2u) != 0;
-				if (piece.ticks < 150 && speed2 > 0.0009f && piece.ticks % 6 == 0)
+				// Hunter pieces drip more often and for longer (OpenCE:
+				// every 6 ticks for 90, against 12/36 for other species).
+				if (piece.ticks < (piece.hunter ? 270 : 150) && speed2 > 0.0009f && piece.ticks % (piece.hunter ? 3 : 6) == 0)
 					EffectOnObject(piece.trailEffect, objectID, "body");
-				if (piece.airborne && onGround && piece.ticks > 3 && piece.splats < 3)
+				if (piece.airborne && onGround && piece.ticks > 3 && piece.splats < (piece.hunter ? 6 : 3))
 				{
 					EffectOnObject(piece.splatEffect, objectID, "body");
+					if (piece.hunter) EffectOnObject(piece.splatEffect, objectID, "body"); // bigger splat: effect-only blood, so a second burst
 					piece.splats++;
 					if (Game::instance.c_GoreLog->Value())
 						Logger::log << "[Gore] piece " << std::hex << objectID << std::dec << " landed: splat " << piece.splats << std::endl;
@@ -802,6 +1030,12 @@ bool Gore::Init()
 	if (!fnEffectOnMarker) Logger::log << "[Gore] effect function not found: gibs without blood bursts" << std::endl;
 	bActive = true;
 	Logger::log << "[Gore] active" << std::endl;
+	Logger::log << "[Gore] config: GoreEnabled=1 GoreThresholdScale=" << Game::instance.c_GoreThresholdScale->Value()
+		<< " GoreHeadshots=" << (Game::instance.c_GoreHeadshots->Value() ? 1 : 0)
+		<< " GoreShotgun=" << (Game::instance.c_GoreShotgun && Game::instance.c_GoreShotgun->Value() ? 1 : 0)
+		<< " GoreShotgunRange=" << (Game::instance.c_GoreShotgunRange ? Game::instance.c_GoreShotgunRange->Value() : -1.f)
+		<< " GoreHunterTank=" << (Game::instance.c_GoreHunterTank && Game::instance.c_GoreHunterTank->Value() ? 1 : 0)
+		<< " GoreLog=" << (Game::instance.c_GoreLog->Value() ? 1 : 0) << " (keys missing from VR/config.txt keep these defaults)" << std::endl;
 	return true;
 }
 
@@ -811,6 +1045,7 @@ uint32_t Gore::PreDamage(void* damage, uint32_t objectID)
 {
 	uint8_t* obj = bActive && !bInternal ? GetObject(objectID) : nullptr;
 	if (!obj) return 0;
+	if (damage) RecordPreDamage(obj, objectID, reinterpret_cast<uint8_t*>(damage));
 	return F<uint16_t>(obj, O_DAMAGE_FLAGS) & 4 ? 2 : 1;
 }
 
@@ -856,6 +1091,69 @@ namespace
 				<< (hit ? "is the head: decapitate" : "is not the head") << std::endl;
 		return hit;
 	}
+	// A Hunter's killing hit judged. Retail wrinkle (log of 2026-10-17):
+	// one shell detonation delivers BOTH 'vehicles\\scorpion\\shell
+	// explosion' damage AND a generic 'weapons\\frag grenade\\shock wave'
+	// event at the same epicentre, and either can be the killing event -
+	// so a fresh direct-hit record qualifies the kill by EPICENTRE, not
+	// by the killing tag's name alone. A thrown grenade can never create
+	// a record (its tag is not scorpion), so it can never gib a Hunter.
+	float HunterTankForce(uint8_t* unit, uint8_t* d, uint32_t unitID)
+	{
+		if (!Game::instance.c_GoreHunterTank || !Game::instance.c_GoreHunterTank->Value()) return 0.f;
+		std::string what = LowerPath(F<uint32_t>(d, D_DEFINITION));
+		ULONGLONG now = GetTickCount64();
+		float* epi = &F<float>(d, D_EPICENTER);
+		for (HunterHit& h : hunterHits)
+		{
+			if (h.unit != unitID || now - h.time > HUNTER_WINDOW_MS) continue;
+			float dx = epi[0]-h.epi[0], dy = epi[1]-h.epi[1], dz = epi[2]-h.epi[2];
+			float epiDist = sqrtf(dx*dx+dy*dy+dz*dz);
+			bool qualifies = what.find("scorpion") != std::string::npos || epiDist <= 1.0f;
+			if (Game::instance.c_GoreLog->Value())
+				Logger::log << "[Gore] hunter kill judged: killing damage '" << TagPath(F<uint32_t>(d, D_DEFINITION)) << "', direct hit " << (now - h.time) / 33
+					<< " ticks ago, killing epicentre " << epiDist << " wu from the shell's -> " << (qualifies ? "GIBS" : "not this shell's kill") << std::endl;
+			if (!qualifies) return 0.f;
+			for (int k = 0; k < 3; k++) lastHunterDir[k] = h.dir[k];
+			h.unit = NONE; // spent
+			return 2.8f;
+		}
+		if (Game::instance.c_GoreLog->Value())
+			Logger::log << "[Gore] hunter killed by " << TagPath(F<uint32_t>(d, D_DEFINITION)) << " not gibbed: "
+				<< (what.find("scorpion") != std::string::npos ? "scorpion splash, no direct shell hit on record" : "only a direct scorpion shell gibs a hunter") << std::endl;
+		return 0.f;
+	}
+
+	// A killing shotgun hit's blast judged once: ANY kill within
+	// GoreShotgunRange (clear metres) gibs, however hurt the victim was.
+	bool ShotgunGib(uint8_t* unit, uint8_t* d, uint32_t unitID)
+	{
+		if (!Game::instance.c_GoreShotgun || !Game::instance.c_GoreShotgun->Value()) return false;
+		ULONGLONG now = GetTickCount64();
+		ShotgunBlast* blast = nullptr;
+		for (ShotgunBlast& b : shotgunBlasts)
+			if (b.victim == unitID && b.owner == F<uint32_t>(d, D_OWNER_OBJECT) && b.def == F<uint32_t>(d, D_DEFINITION) &&
+				now - b.last <= SHOTGUN_WINDOW_MS && now - b.first <= SHOTGUN_WINDOW_MS) blast = &b;
+		if (!blast)
+		{
+			if (Game::instance.c_GoreLog->Value() && LowerPath(F<uint32_t>(d, D_DEFINITION)).find("shotgun") != std::string::npos)
+				Logger::log << "[Gore] shotgun kill on " << TagPath(F<uint32_t>(unit, 0)) << " not gibbed: no blast tracked (its first pellet was not seen)" << std::endl;
+			return false;
+		}
+		if (blast->decided) return false;
+		blast->decided = true;
+		float range = Game::instance.c_GoreShotgunRange ? Game::instance.c_GoreShotgunRange->Value() : 2.f;
+		if (range <= 0.f) range = 2.f;
+		if (blast->distance > range)
+		{
+			if (Game::instance.c_GoreLog->Value())
+				Logger::log << "[Gore] shotgun kill on " << TagPath(F<uint32_t>(unit, 0)) << " not gibbed: not point blank (" << blast->distance << " m clear, limit " << range << " m; " << blast->pellets << " pellets)" << std::endl;
+			return false;
+		}
+		if (Game::instance.c_GoreLog->Value())
+			Logger::log << "[Gore] shotgun point-blank kill gibs " << TagPath(F<uint32_t>(unit, 0)) << " (" << blast->pellets << " pellets, " << blast->distance << " m)" << std::endl;
+		return true;
+	}
 }
 
 void Gore::PostDamage(void* damage, uint32_t objectID, uint32_t preDeadFlag, int32_t node)
@@ -865,22 +1163,42 @@ void Gore::PostDamage(void* damage, uint32_t objectID, uint32_t preDeadFlag, int
 	if (!unit || F<uint16_t>(unit, O_TYPE) != 0) return;          // bipeds only
 	if (!(F<uint16_t>(unit, O_DAMAGE_FLAGS) & 4)) return;          // it has to be dead now
 	if (F<uint32_t>(unit, O_FLAGS) & 1) return;                    // (hidden)
-	if (F<uint32_t>(unit, U_PLAYER) != NONE) return;               // the Chief: later milestone
 	if (!IsSinglePlayer()) return;
-	const UnitType* type = TypeOf(F<uint32_t>(unit, 0));
-	if (type->disabled) return;
-	uint8_t* d = reinterpret_cast<uint8_t*>(damage);
-	lastVehicleHit = false;
-	float force = GibForce(unit, d, type);
-	if (Game::instance.c_GoreLog->Value() && force > 0.f)
-		Logger::log << "[Gore] hit on " << TagPath(F<uint32_t>(unit, 0)) << " force " << force << (preDeadFlag == 2 ? " (corpse)" : "") << std::endl;
-	bool headshot = false;
-	if (force < 1.f)
+	bool isPlayer = IsPlayerUnit(objectID);
+	if (IsMachineUnit(unit))
 	{
-		// Only the killing shot (not a corpse), behind GoreHeadshots.
-		if (preDeadFlag != 1 || !Game::instance.c_GoreHeadshots->Value() || !IsSniperHeadshot(unit, d, node)) return;
-		headshot = true;
-		force = 1.f;
+		if (Game::instance.c_GoreLog->Value())
+			Logger::log << "[Gore] " << TagPath(F<uint32_t>(unit, 0)) << " machine/not organic, no gib" << std::endl;
+		return;
+	}
+	uint8_t* d = reinterpret_cast<uint8_t*>(damage);
+	const UnitType* type = TypeOf(F<uint32_t>(unit, 0));
+	bool headshot = false, hunter = false, shotgun = false;
+	float force = 0.f;
+	if (IsHunterUnit(unit))
+	{
+		// Hunters never gib - except a direct Scorpion shell (GoreHunterTank).
+		// Only the killing transition is judged; corpse hits just spam.
+		if (preDeadFlag != 1) return;
+		force = HunterTankForce(unit, d, objectID);
+		if (force < 1.f) return;
+		hunter = true;
+	}
+	else
+	{
+		if (type->disabled) return;
+		lastVehicleHit = false;
+		force = GibForce(unit, d, type);
+		if (Game::instance.c_GoreLog->Value() && force > 0.f)
+			Logger::log << "[Gore] hit on " << TagPath(F<uint32_t>(unit, 0)) << " force " << force << (preDeadFlag == 2 ? " (corpse)" : "") << std::endl;
+		if (force < 1.f)
+		{
+			// Only the killing shot (not a corpse), behind GoreHeadshots.
+			if (preDeadFlag == 1 && Game::instance.c_GoreHeadshots->Value() && IsSniperHeadshot(unit, d, node)) { headshot = true; force = 1.f; }
+			// Any point-blank shotgun kill gibs, however hurt the victim was.
+			else if (preDeadFlag == 1 && ShotgunGib(unit, d, objectID)) { shotgun = true; force = 2.2f; }
+			else return;
+		}
 	}
 	for (Pending& p : pending) if (p.unit == objectID) return;
 	for (Pending& p : pending)
@@ -889,6 +1207,9 @@ void Gore::PostDamage(void* damage, uint32_t objectID, uint32_t preDeadFlag, int
 		p.unit = objectID;
 		p.force = force;
 		p.headshot = headshot;
+		p.hunter = hunter;
+		p.shotgun = shotgun;
+		p.player = isPlayer;
 		p.vehicleHit = lastVehicleHit;
 		memcpy(p.vehicleVel, lastVehicleVel, sizeof(p.vehicleVel));
 		p.time = GetTickCount64();
@@ -897,6 +1218,7 @@ void Gore::PostDamage(void* damage, uint32_t objectID, uint32_t preDeadFlag, int
 		float len = sqrtf(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
 		if (len > 0.0001f) { p.dir[0] = dir[0] / len; p.dir[1] = dir[1] / len; p.dir[2] = dir[2] / len; }
 		else { p.dir[0] = p.dir[1] = 0.f; p.dir[2] = 1.f; }
+		if (hunter) for (int k = 0; k < 3; k++) p.dir[k] = lastHunterDir[k]; // scatter along the shell's way, not the detonation's
 		return;
 	}
 }
@@ -914,6 +1236,17 @@ void Gore::Update()
 			Gib(copy);
 		}
 		SweepDrops();
+		{ // player pieces: catch drops their deaths shake loose late
+			static ULONGLONG lastWatch = 0;
+			ULONGLONG now0 = GetTickCount64();
+			if (now0 - lastWatch >= 250)
+			{
+				lastWatch = now0;
+				for (Piece& piece : pieces)
+					if (piece.player && piece.object != NONE && now0 - piece.born < 10000)
+						if (uint8_t* po = GetObject(piece.object)) DeleteFreshLooseNear(F<Vector3>(po, O_POSITION), 2.f);
+			}
+		}
 		activePieces = 0;
 		for (Piece& piece : pieces) if (piece.object != NONE) activePieces++;
 		ULONGLONG now = GetTickCount64();
@@ -922,7 +1255,11 @@ void Gore::Update()
 		{
 			if (piece.object == NONE) continue;
 			if (!GetObject(piece.object)) { piece.object = NONE; continue; }
-			if (now - piece.born > life) { DeleteObject(piece.object); piece.object = NONE; }
+			if (now - piece.born > life)
+			{ // arm a sweep first: whatever its deletion drops is fresh meat
+				SnapshotWeapons(F<Vector3>(GetObject(piece.object), O_POSITION));
+				DeleteObject(piece.object); piece.object = NONE;
+			}
 		}
 	}
 	__except (EXCEPTION_EXECUTE_HANDLER)

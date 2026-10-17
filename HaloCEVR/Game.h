@@ -412,6 +412,9 @@ public:
 	IntProperty* c_GoreMaxPieces = nullptr;
 	FloatProperty* c_GorePieceSeconds = nullptr;
 	BoolProperty* c_GoreHeadshots = nullptr;
+	BoolProperty* c_GoreShotgun = nullptr;
+	FloatProperty* c_GoreShotgunRange = nullptr;
+	BoolProperty* c_GoreHunterTank = nullptr;
 	BoolProperty* c_GoreLog = nullptr;
 };
 
