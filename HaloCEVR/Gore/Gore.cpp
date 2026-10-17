@@ -57,6 +57,11 @@ namespace
 	constexpr int OBJE_MODEL = 0x34;        // tag_reference index
 	constexpr int OBJE_COLLISION = 0x7C;
 	constexpr int JPT_UPPER_BOUND = 0x1DC;
+	// damage_definition inside jpt!: category sits 0x12 before the upper bound
+	// (decompiled damage_effect_definitions.h layout, anchored on 0x1DC).
+	constexpr int JPT_CATEGORY = 0x1CA;
+	constexpr int16_t CAT_HIGHEXPLOSIVE = 4, CAT_MOUNTEDWEAPON = 8, CAT_SHOTGUN = 11;
+	constexpr uint32_t DFLAG_FROM_WEAPON = 1u << 3; // damage_data flags bit 3
 	constexpr int COLL_LOCALIZED_EFFECT = 0x7C;
 	constexpr int COLL_AREA_EFFECT = 0x90;
 	constexpr int COLL_DESTROYED_EFFECT = 0xC8;
@@ -90,7 +95,7 @@ namespace
 	};
 	constexpr int NUM_PARTS = 6; // + torso
 
-	struct Pending { uint32_t unit = NONE; bool headshot = false; float force = 0.f; float dir[3]{}; bool vehicleHit = false; float vehicleVel[3]{}; uint8_t damage[D_SIZE]{}; ULONGLONG time = 0; };
+	struct Pending { uint32_t unit = NONE; bool headshot = false; bool hunter = false; bool shotgun = false; float force = 0.f; float dir[3]{}; bool vehicleHit = false; float vehicleVel[3]{}; uint8_t damage[D_SIZE]{}; ULONGLONG time = 0; };
 	constexpr int MAX_NODES = 64;
 	constexpr int O_NODE_MATRICES = 0x1F0;  // short size, short offset from the object
 	constexpr int O_NEXT_OBJECT = 0x114;
@@ -102,7 +107,7 @@ namespace
 	static_assert(sizeof(Transform) == 52, "node matrix");          // scale, forward, left, up, position
 	// A piece: a dead copy of the whole unit; each node not in the piece is
 	// shrunk to nothing at its joint every frame before the scene is drawn.
-	struct Piece { uint32_t object = NONE; ULONGLONG born = 0; int nodeCount = 0; int8_t collapse[MAX_NODES]; bool logged = false;
+	struct Piece { uint32_t object = NONE; ULONGLONG born = 0; int nodeCount = 0; int8_t collapse[MAX_NODES]; bool logged = false; bool hunter = false;
 		float vel[3]{}; float spin[3]{}; int reapply = 0; int keep = -1;
 		uint32_t trailEffect = NONE; uint32_t splatEffect = NONE; int ticks = 0; bool airborne = true; int splats = 0;
 		// Once frozen the game stops rebuilding its nodes (object flag 23) and
@@ -122,6 +127,21 @@ namespace
 	constexpr int MAX_PIECES = 256;
 	Pending pending[MAX_PENDING];
 	Piece pieces[MAX_PIECES];
+
+	// Hunter direct-hit credit: 10 ticks at 30 ticks/s = 1/3 s. The shell's
+	// detonation, not its impact damage, usually lands the killing blow.
+	struct HunterHit { uint32_t unit = NONE; ULONGLONG time = 0; float dir[3]{}; };
+	constexpr ULONGLONG HUNTER_WINDOW_MS = 333;
+	constexpr int MAX_HUNTER_HITS = 8;
+	HunterHit hunterHits[MAX_HUNTER_HITS];
+	float lastHunterDir[3] = { 0.f, 0.f, 1.f };
+
+	// Shotgun pellets aggregated per blast: 6 ticks = 200 ms. The first
+	// pellet captures the clear shooter-to-victim distance.
+	struct ShotgunBlast { uint32_t victim = NONE; uint32_t owner = NONE; uint32_t def = NONE; ULONGLONG first = 0, last = 0; int pellets = 0; bool decided = false; float distance = 0.f; };
+	constexpr ULONGLONG SHOTGUN_WINDOW_MS = 200;
+	constexpr int MAX_SHOTGUN_BLASTS = 16;
+	ShotgunBlast shotgunBlasts[MAX_SHOTGUN_BLASTS];
 
 	bool bActive = false;
 	bool lastVehicleHit = false;
@@ -169,6 +189,82 @@ namespace
 		for (const UnitType& t : unitTypes)
 			if (!*t.path || path.find(t.path) != std::string::npos) return &t;
 		return &unitTypes[_countof(unitTypes) - 1];
+	}
+
+	std::string LowerPath(uint32_t tag) { std::string v = TagPath(tag) ? TagPath(tag) : ""; for (char& c : v) c = (char)std::tolower((unsigned char)c); return v; }
+	bool IsHunterUnit(uint8_t* unit) { return LowerPath(F<uint32_t>(unit, 0)).find("hunter") != std::string::npos; }
+	// -1 when the jpt! tag is unreadable: callers fall back to the tag path.
+	int16_t DamageCategory(uint8_t* damage)
+	{
+		uint8_t* jpt = TagData(F<uint32_t>(damage, D_DEFINITION));
+		if (!jpt) return -1;
+		int16_t c = F<int16_t>(jpt, JPT_CATEGORY);
+		return (c >= 0 && c <= CAT_SHOTGUN) ? c : -1;
+	}
+
+	// Runs before each damage lands (PreDamage): remember scorpion shell
+	// direct hits on Hunters, and aggregate shotgun pellets per blast.
+	void RecordPreDamage(uint8_t* unit, uint32_t unitID, uint8_t* d)
+	{
+		ULONGLONG now = GetTickCount64();
+		bool dead = (F<uint16_t>(unit, O_DAMAGE_FLAGS) & 4) != 0;
+		if (!dead && Game::instance.c_GoreHunterTank && Game::instance.c_GoreHunterTank->Value() && IsHunterUnit(unit))
+		{
+			std::string what = LowerPath(F<uint32_t>(d, D_DEFINITION));
+			uint32_t flags = F<uint32_t>(d, D_FLAGS);
+			int16_t cat = DamageCategory(d);
+			// Direct impact only: from a weapon, not AoE, explosive/mounted
+			// category (the coax MG bullet is category bullet and excluded);
+			// an unreadable category falls back to the tag path alone.
+			if (what.find("scorpion") != std::string::npos && !(flags & 1) && (flags & DFLAG_FROM_WEAPON) &&
+				(cat < 0 || cat == CAT_HIGHEXPLOSIVE || cat == CAT_MOUNTEDWEAPON))
+			{
+				HunterHit* slot = nullptr;
+				for (HunterHit& h : hunterHits) if (h.unit == unitID) { slot = &h; break; }
+				if (!slot) for (HunterHit& h : hunterHits) if (h.unit == NONE || now - h.time > HUNTER_WINDOW_MS) { slot = &h; break; }
+				if (!slot) slot = &hunterHits[0];
+				slot->unit = unitID; slot->time = now;
+				float* dir = &F<float>(d, D_DIRECTION);
+				float len = sqrtf(dir[0]*dir[0]+dir[1]*dir[1]+dir[2]*dir[2]);
+				if (len > 0.0001f) for (int k=0;k<3;k++) slot->dir[k]=dir[k]/len;
+				else { slot->dir[0]=slot->dir[1]=0.f; slot->dir[2]=1.f; }
+				if (Game::instance.c_GoreLog->Value())
+					Logger::log << "[Gore] scorpion shell direct hit on hunter " << TagPath(F<uint32_t>(unit, 0)) << " (recorded)" << std::endl;
+			}
+		}
+		if (!dead && Game::instance.c_GoreShotgun && Game::instance.c_GoreShotgun->Value() &&
+			F<uint16_t>(unit, O_TYPE) == 0 && F<uint32_t>(unit, O_PARENT) == NONE)
+		{
+			int16_t cat = DamageCategory(d);
+			if (cat == CAT_SHOTGUN || LowerPath(F<uint32_t>(d, D_DEFINITION)).find("shotgun") != std::string::npos)
+			{
+				uint32_t owner = F<uint32_t>(d, D_OWNER_OBJECT);
+				uint8_t* shooter = (owner != NONE && owner != unitID) ? GetObject(owner) : nullptr;
+				if (shooter && F<uint16_t>(shooter, O_TYPE) == 0)
+				{
+					uint32_t def = F<uint32_t>(d, D_DEFINITION);
+					ShotgunBlast* blast = nullptr; ShotgunBlast* freeSlot = nullptr;
+					for (ShotgunBlast& b : shotgunBlasts)
+					{
+						if (!freeSlot && (b.victim == NONE || now - b.last > SHOTGUN_WINDOW_MS)) freeSlot = &b;
+						if (b.victim == unitID && b.owner == owner && b.def == def && now - b.last <= SHOTGUN_WINDOW_MS) blast = &b;
+					}
+					if (!blast)
+					{
+						blast = freeSlot;
+						if (!blast) return;
+						blast->victim = unitID; blast->owner = owner; blast->def = def;
+						blast->first = now; blast->pellets = 0; blast->decided = false;
+						float* c1 = &F<float>(shooter, O_CENTRE); float* c2 = &F<float>(unit, O_CENTRE);
+						float dx=c1[0]-c2[0], dy=c1[1]-c2[1], dz=c1[2]-c2[2];
+						float dist = sqrtf(dx*dx+dy*dy+dz*dz) * METRES_PER_WU -
+							(F<float>(shooter, O_RADIUS) + F<float>(unit, O_RADIUS)) * METRES_PER_WU;
+						blast->distance = dist < 0.f ? 0.f : dist;
+					}
+					blast->last = now; blast->pellets++;
+				}
+			}
+		}
 	}
 
 	void DeleteObject(uint32_t id)
@@ -509,6 +605,7 @@ namespace
 			speed = keepNode >= 0 ? Rand(0.06f, 0.1f) : 0.f;
 			if (keepNode >= 0) { out[0] = p.dir[0]; out[1] = p.dir[1]; out[2] = p.dir[2]; }
 		}
+		if (p.shotgun || p.hunter) { out[0] = p.dir[0]; out[1] = p.dir[1]; out[2] = p.dir[2]; } // pieces scatter the shot's / shell's way
 		float vel[3];
 		for (int k = 0; k < 3; k++) vel[k] = out[k] * speed + Rand(-1.f, 1.f) * speed * 0.35f;
 		vel[2] += speed * Rand(0.3f, 0.7f) + 0.04f;
@@ -528,7 +625,7 @@ namespace
 		EffectOnObject(blood, id, "body");
 		piece->trailEffect = blood;
 		piece->splatEffect = splat != NONE ? splat : blood;
-		piece->ticks = 0; piece->airborne = true; piece->splats = 0;
+		piece->ticks = 0; piece->airborne = true; piece->splats = 0; piece->hunter = p.hunter;
 		if (bCollapseFailed || !collapse) F<uint32_t>(obj, O_FLAGS) |= 1u; // never a standing whole copy
 	}
 
@@ -550,6 +647,15 @@ namespace
 
 		// The burst where the unit stood, before it goes.
 		EffectOnObject(blood, p.unit, "body");
+		// A Hunter carries a lot of (orange, from its own collision effects)
+		// blood: three more bursts at the split. VR blood is effect-only -
+		// no decal API is ported - so extra bursts stand in for bigger splats.
+		if (p.hunter)
+		{
+			for (int b = 0; b < 3; b++) EffectOnObject(blood, p.unit, "body");
+			if (Game::instance.c_GoreLog->Value())
+				Logger::log << "[Gore] hunter tank gib: 3 extra blood bursts at the split on " << TagPath(def) << std::endl;
+		}
 
 		int parts = 0;
 		uint32_t used = 0;
@@ -616,7 +722,7 @@ namespace
 					if (masks[part]) SpawnCopy(GetObject(p.unit), p.unit, masks[part], p, trail != NONE ? trail : blood);
 			}
 		}
-		Logger::log << "[Gore] " << TagPath(def) << " came apart into " << parts << " pieces (" << (bones ? "bones" : "regions") << "), force " << p.force << std::endl;
+		Logger::log << "[Gore] " << TagPath(def) << " came apart into " << parts << " pieces (" << (bones ? "bones" : "regions") << "), force " << p.force << (p.hunter ? " (hunter tank gib)" : "") << (p.shotgun ? " (shotgun point-blank)" : "") << std::endl;
 
 		// The corpse goes when it split; a one-region model just bleeds and stays.
 		if (parts >= 2)
@@ -697,11 +803,14 @@ void Gore::PostObjectUpdate(uint32_t objectID)
 				float* v = &F<float>(obj, O_VELOCITY);
 				float speed2 = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
 				bool onGround = (F<uint32_t>(obj, O_FLAGS) & 2u) != 0;
-				if (piece.ticks < 150 && speed2 > 0.0009f && piece.ticks % 6 == 0)
+				// Hunter pieces drip more often and for longer (OpenCE:
+				// every 6 ticks for 90, against 12/36 for other species).
+				if (piece.ticks < (piece.hunter ? 270 : 150) && speed2 > 0.0009f && piece.ticks % (piece.hunter ? 3 : 6) == 0)
 					EffectOnObject(piece.trailEffect, objectID, "body");
-				if (piece.airborne && onGround && piece.ticks > 3 && piece.splats < 3)
+				if (piece.airborne && onGround && piece.ticks > 3 && piece.splats < (piece.hunter ? 6 : 3))
 				{
 					EffectOnObject(piece.splatEffect, objectID, "body");
+					if (piece.hunter) EffectOnObject(piece.splatEffect, objectID, "body"); // bigger splat: effect-only blood, so a second burst
 					piece.splats++;
 					if (Game::instance.c_GoreLog->Value())
 						Logger::log << "[Gore] piece " << std::hex << objectID << std::dec << " landed: splat " << piece.splats << std::endl;
@@ -811,6 +920,7 @@ uint32_t Gore::PreDamage(void* damage, uint32_t objectID)
 {
 	uint8_t* obj = bActive && !bInternal ? GetObject(objectID) : nullptr;
 	if (!obj) return 0;
+	if (damage) RecordPreDamage(obj, objectID, reinterpret_cast<uint8_t*>(damage));
 	return F<uint16_t>(obj, O_DAMAGE_FLAGS) & 4 ? 2 : 1;
 }
 
@@ -856,6 +966,66 @@ namespace
 				<< (hit ? "is the head: decapitate" : "is not the head") << std::endl;
 		return hit;
 	}
+	// A Hunter's killing hit judged: only a scorpion shell that hit it
+	// directly gibs it (its impact, or the detonation within the 10-tick
+	// credit window). Splash with no record, and everything else, refused.
+	float HunterTankForce(uint8_t* unit, uint8_t* d, uint32_t unitID)
+	{
+		if (!Game::instance.c_GoreHunterTank || !Game::instance.c_GoreHunterTank->Value()) return 0.f;
+		std::string what = LowerPath(F<uint32_t>(d, D_DEFINITION));
+		if (what.find("scorpion") == std::string::npos)
+		{
+			if (Game::instance.c_GoreLog->Value())
+				Logger::log << "[Gore] hunter killed by " << TagPath(F<uint32_t>(d, D_DEFINITION)) << " not gibbed: only a direct scorpion shell gibs a hunter" << std::endl;
+			return 0.f;
+		}
+		ULONGLONG now = GetTickCount64();
+		for (HunterHit& h : hunterHits)
+		{
+			if (h.unit == unitID && now - h.time <= HUNTER_WINDOW_MS)
+			{
+				for (int k = 0; k < 3; k++) lastHunterDir[k] = h.dir[k];
+				h.unit = NONE; // spent
+				if (Game::instance.c_GoreLog->Value())
+					Logger::log << "[Gore] hunter gibbed by direct scorpion shell hit (direct impact " << (now - h.time) / 33 << " ticks ago)" << std::endl;
+				return 2.8f;
+			}
+		}
+		if (Game::instance.c_GoreLog->Value())
+			Logger::log << "[Gore] hunter killed by " << TagPath(F<uint32_t>(d, D_DEFINITION)) << " not gibbed: scorpion splash, no direct shell hit on record" << std::endl;
+		return 0.f;
+	}
+
+	// A killing shotgun hit's blast judged once: ANY kill within
+	// GoreShotgunRange (clear metres) gibs, however hurt the victim was.
+	bool ShotgunGib(uint8_t* unit, uint8_t* d, uint32_t unitID)
+	{
+		if (!Game::instance.c_GoreShotgun || !Game::instance.c_GoreShotgun->Value()) return false;
+		ULONGLONG now = GetTickCount64();
+		ShotgunBlast* blast = nullptr;
+		for (ShotgunBlast& b : shotgunBlasts)
+			if (b.victim == unitID && b.owner == F<uint32_t>(d, D_OWNER_OBJECT) && b.def == F<uint32_t>(d, D_DEFINITION) &&
+				now - b.last <= SHOTGUN_WINDOW_MS && now - b.first <= SHOTGUN_WINDOW_MS) blast = &b;
+		if (!blast)
+		{
+			if (Game::instance.c_GoreLog->Value() && LowerPath(F<uint32_t>(d, D_DEFINITION)).find("shotgun") != std::string::npos)
+				Logger::log << "[Gore] shotgun kill on " << TagPath(F<uint32_t>(unit, 0)) << " not gibbed: no blast tracked (its first pellet was not seen)" << std::endl;
+			return false;
+		}
+		if (blast->decided) return false;
+		blast->decided = true;
+		float range = Game::instance.c_GoreShotgunRange ? Game::instance.c_GoreShotgunRange->Value() : 2.f;
+		if (range <= 0.f) range = 2.f;
+		if (blast->distance > range)
+		{
+			if (Game::instance.c_GoreLog->Value())
+				Logger::log << "[Gore] shotgun kill on " << TagPath(F<uint32_t>(unit, 0)) << " not gibbed: not point blank (" << blast->distance << " m clear, limit " << range << " m; " << blast->pellets << " pellets)" << std::endl;
+			return false;
+		}
+		if (Game::instance.c_GoreLog->Value())
+			Logger::log << "[Gore] shotgun point-blank kill gibs " << TagPath(F<uint32_t>(unit, 0)) << " (" << blast->pellets << " pellets, " << blast->distance << " m)" << std::endl;
+		return true;
+	}
 }
 
 void Gore::PostDamage(void* damage, uint32_t objectID, uint32_t preDeadFlag, int32_t node)
@@ -867,20 +1037,32 @@ void Gore::PostDamage(void* damage, uint32_t objectID, uint32_t preDeadFlag, int
 	if (F<uint32_t>(unit, O_FLAGS) & 1) return;                    // (hidden)
 	if (F<uint32_t>(unit, U_PLAYER) != NONE) return;               // the Chief: later milestone
 	if (!IsSinglePlayer()) return;
-	const UnitType* type = TypeOf(F<uint32_t>(unit, 0));
-	if (type->disabled) return;
 	uint8_t* d = reinterpret_cast<uint8_t*>(damage);
-	lastVehicleHit = false;
-	float force = GibForce(unit, d, type);
-	if (Game::instance.c_GoreLog->Value() && force > 0.f)
-		Logger::log << "[Gore] hit on " << TagPath(F<uint32_t>(unit, 0)) << " force " << force << (preDeadFlag == 2 ? " (corpse)" : "") << std::endl;
-	bool headshot = false;
-	if (force < 1.f)
+	const UnitType* type = TypeOf(F<uint32_t>(unit, 0));
+	bool headshot = false, hunter = false, shotgun = false;
+	float force = 0.f;
+	if (IsHunterUnit(unit))
 	{
-		// Only the killing shot (not a corpse), behind GoreHeadshots.
-		if (preDeadFlag != 1 || !Game::instance.c_GoreHeadshots->Value() || !IsSniperHeadshot(unit, d, node)) return;
-		headshot = true;
-		force = 1.f;
+		// Hunters never gib - except a direct Scorpion shell (GoreHunterTank).
+		force = HunterTankForce(unit, d, objectID);
+		if (force < 1.f) return;
+		hunter = true;
+	}
+	else
+	{
+		if (type->disabled) return;
+		lastVehicleHit = false;
+		force = GibForce(unit, d, type);
+		if (Game::instance.c_GoreLog->Value() && force > 0.f)
+			Logger::log << "[Gore] hit on " << TagPath(F<uint32_t>(unit, 0)) << " force " << force << (preDeadFlag == 2 ? " (corpse)" : "") << std::endl;
+		if (force < 1.f)
+		{
+			// Only the killing shot (not a corpse), behind GoreHeadshots.
+			if (preDeadFlag == 1 && Game::instance.c_GoreHeadshots->Value() && IsSniperHeadshot(unit, d, node)) { headshot = true; force = 1.f; }
+			// Any point-blank shotgun kill gibs, however hurt the victim was.
+			else if (preDeadFlag == 1 && ShotgunGib(unit, d, objectID)) { shotgun = true; force = 2.2f; }
+			else return;
+		}
 	}
 	for (Pending& p : pending) if (p.unit == objectID) return;
 	for (Pending& p : pending)
@@ -889,6 +1071,8 @@ void Gore::PostDamage(void* damage, uint32_t objectID, uint32_t preDeadFlag, int
 		p.unit = objectID;
 		p.force = force;
 		p.headshot = headshot;
+		p.hunter = hunter;
+		p.shotgun = shotgun;
 		p.vehicleHit = lastVehicleHit;
 		memcpy(p.vehicleVel, lastVehicleVel, sizeof(p.vehicleVel));
 		p.time = GetTickCount64();
@@ -897,6 +1081,7 @@ void Gore::PostDamage(void* damage, uint32_t objectID, uint32_t preDeadFlag, int
 		float len = sqrtf(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
 		if (len > 0.0001f) { p.dir[0] = dir[0] / len; p.dir[1] = dir[1] / len; p.dir[2] = dir[2] / len; }
 		else { p.dir[0] = p.dir[1] = 0.f; p.dir[2] = 1.f; }
+		if (hunter) for (int k = 0; k < 3; k++) p.dir[k] = lastHunterDir[k]; // scatter along the shell's way, not the detonation's
 		return;
 	}
 }

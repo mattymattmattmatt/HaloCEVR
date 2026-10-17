@@ -2,7 +2,7 @@ name: Build (gore)
 
 on:
   push:
-    branches: [gore]
+    branches: [gore, gore-shotgun-hunter]
   workflow_dispatch:
 
 jobs:

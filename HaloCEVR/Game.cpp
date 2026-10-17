@@ -1956,7 +1956,10 @@ void Game::SetupConfigs()
 	c_GoreThresholdScale = config.RegisterFloat("GoreThresholdScale", "How easily bodies gib: above 1 gibs from further away and slower vehicles, below 1 needs closer blasts and faster hits", 1.0f);
 	c_GoreMaxPieces = config.RegisterInt("GoreMaxPieces", "Most gore pieces at once (6 to 256); when full the oldest piece goes first", 96);
 	c_GorePieceSeconds = config.RegisterFloat("GorePieceSeconds", "Seconds a gore piece stays before it is removed", 180.0f);
-	c_GoreHeadshots = config.RegisterBool("GoreHeadshots", "A killing sniper rifle headshot takes just the head off (not yet implemented in VR)", true);
+	c_GoreHeadshots = config.RegisterBool("GoreHeadshots", "A killing sniper rifle headshot takes just the head off", true);
+	c_GoreShotgun = config.RegisterBool("GoreShotgun", "Any shotgun kill at point-blank range blows the victim apart into pieces, however hurt it already was (Hunters excluded)", true);
+	c_GoreShotgunRange = config.RegisterFloat("GoreShotgunRange", "Point-blank shotgun gib range in metres of clear distance between shooter and victim (bounding spheres excluded)", 2.0f);
+	c_GoreHunterTank = config.RegisterBool("GoreHunterTank", "A Hunter killed by a direct Scorpion tank shell hit blows apart with extra orange blood (splash, rockets and everything else never gib a Hunter)", true);
 	c_GoreLog = config.RegisterBool("GoreLog", "Write every gore hit to the log, for testing", false);
 	// Weapon holster settings
 	c_EnableWeaponHolsters = config.RegisterBool("EnableWeaponHolsters", "When enabled Weapons can only be switched by using the 'SwitchWeapons' binding while the dominant hand is within distance of a holster", true);
