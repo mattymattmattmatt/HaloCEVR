@@ -95,7 +95,7 @@ namespace
 	};
 	constexpr int NUM_PARTS = 6; // + torso
 
-	struct Pending { uint32_t unit = NONE; bool headshot = false; bool hunter = false; bool shotgun = false; float force = 0.f; float dir[3]{}; bool vehicleHit = false; float vehicleVel[3]{}; uint8_t damage[D_SIZE]{}; ULONGLONG time = 0; };
+	struct Pending { uint32_t unit = NONE; bool headshot = false; bool hunter = false; bool shotgun = false; bool player = false; float force = 0.f; float dir[3]{}; bool vehicleHit = false; float vehicleVel[3]{}; uint8_t damage[D_SIZE]{}; ULONGLONG time = 0; };
 	constexpr int MAX_NODES = 64;
 	constexpr int O_NODE_MATRICES = 0x1F0;  // short size, short offset from the object
 	constexpr int O_NEXT_OBJECT = 0x114;
@@ -107,7 +107,7 @@ namespace
 	static_assert(sizeof(Transform) == 52, "node matrix");          // scale, forward, left, up, position
 	// A piece: a dead copy of the whole unit; each node not in the piece is
 	// shrunk to nothing at its joint every frame before the scene is drawn.
-	struct Piece { uint32_t object = NONE; ULONGLONG born = 0; int nodeCount = 0; int8_t collapse[MAX_NODES]; bool logged = false; bool hunter = false;
+	struct Piece { uint32_t object = NONE; ULONGLONG born = 0; int nodeCount = 0; int8_t collapse[MAX_NODES]; bool logged = false; bool hunter = false; bool player = false;
 		float vel[3]{}; float spin[3]{}; int reapply = 0; int keep = -1;
 		uint32_t trailEffect = NONE; uint32_t splatEffect = NONE; int ticks = 0; bool airborne = true; int splats = 0;
 		// Once frozen the game stops rebuilding its nodes (object flag 23) and
@@ -117,7 +117,8 @@ namespace
 	// Weapons and equipment that existed when a body split; anything new
 	// near the split in the next 2 seconds is a piece's drop and goes.
 	struct Sweep { Vector3 at; ULONGLONG until = 0; };
-	constexpr int MAX_SWEEPS = 8;
+	constexpr int MAX_SWEEPS = 16;
+	constexpr int MAX_GIB_PIECES = 12; // sanity: no split may spawn more pieces than this
 	Sweep sweeps[MAX_SWEEPS];
 	constexpr int MAX_KNOWN = 1024;
 	uint32_t known[MAX_KNOWN];
@@ -193,6 +194,25 @@ namespace
 
 	std::string LowerPath(uint32_t tag) { std::string v = TagPath(tag) ? TagPath(tag) : ""; for (char& c : v) c = (char)std::tolower((unsigned char)c); return v; }
 	bool IsHunterUnit(uint8_t* unit) { return LowerPath(F<uint32_t>(unit, 0)).find("hunter") != std::string::npos; }
+	// Pure machines have no flesh to gib: Sentinels, monitors (343 Guilty
+	// Spark), Constructors, Enforcers. They only reach gore via the ""
+	// catch-all species entry, whose blast rules then chain: a Sentinel's
+	// death explosion gibs its neighbours, each into 6 more copies (~50).
+	bool IsMachineUnit(uint8_t* unit)
+	{
+		std::string path = LowerPath(F<uint32_t>(unit, 0));
+		return path.find("sentinel") != std::string::npos || path.find("monitor") != std::string::npos ||
+			path.find("guilty") != std::string::npos || path.find("constructor") != std::string::npos ||
+			path.find("enforcer") != std::string::npos;
+	}
+	// The local player's unit, from the player table - the old check on
+	// the unit's player field (0x218) did NOT stop the Chief gibbing
+	// (session log: cyborg pieces carrying frag 4 + rifle/pistol drops).
+	bool IsPlayerUnit(uint32_t objectID)
+	{
+		HaloID local;
+		return Helpers::GetLocalPlayerID(local) && *reinterpret_cast<uint32_t*>(&local) == objectID;
+	}
 	// -1 when the jpt! tag is unreadable: callers fall back to the tag path.
 	int16_t DamageCategory(uint8_t* damage)
 	{
@@ -399,6 +419,8 @@ namespace
 		return force;
 	}
 
+	void SnapshotWeapons(const Vector3& at, ULONGLONG durationMs = 10000);
+
 	Piece* NewPiece()
 	{
 		int maximum = Game::instance.c_GoreMaxPieces->Value();
@@ -409,6 +431,7 @@ namespace
 			if (pieces[i].object == NONE || !GetObject(pieces[i].object)) { pieces[i].object = NONE; return &pieces[i]; }
 			if (oldest < 0 || pieces[i].born < pieces[oldest].born) oldest = i;
 		}
+		if (uint8_t* oldObj = GetObject(pieces[oldest].object)) SnapshotWeapons(F<Vector3>(oldObj, O_POSITION));
 		DeleteObject(pieces[oldest].object);
 		pieces[oldest].object = NONE;
 		return &pieces[oldest];
@@ -480,7 +503,7 @@ namespace
 		return false;
 	}
 
-	void SnapshotWeapons(const Vector3& at)
+	void SnapshotWeapons(const Vector3& at, ULONGLONG durationMs)
 	{
 		ObjectTable& table = Helpers::GetObjectTable();
 		knownCount = 0;
@@ -493,7 +516,7 @@ namespace
 				known[knownCount++] = (uint32_t(d.id) << 16) | uint32_t(i);
 		}
 		for (Sweep& w : sweeps)
-			if (w.until == 0 || GetTickCount64() > w.until) { w.at = at; w.until = GetTickCount64() + 3000; return; }
+			if (w.until == 0 || GetTickCount64() > w.until) { w.at = at; w.until = GetTickCount64() + durationMs; return; }
 	}
 
 	void SweepDrops()
@@ -524,6 +547,56 @@ namespace
 					DeleteObject(id);
 					break;
 				}
+			}
+		}
+	}
+
+	// Delete EVERY object parented to a piece, by scanning the object
+	// table. The old first-child-chain walk logged 'removed 0' for the
+	// Chief's copies: held weapons are not reliably that chain, so each
+	// copy kept the player loadout and dropped it on death.
+	int DeleteChildrenOf(uint32_t pieceID)
+	{
+		int removed = 0;
+		ObjectTable& table = Helpers::GetObjectTable();
+		for (int i = 0; table.elements && i < table.currentSize; i++)
+		{
+			ObjectDatum& d = table.elements[i];
+			if (!d.dynamicObject || d.id == 0) continue;
+			uint8_t* o = reinterpret_cast<uint8_t*>(d.dynamicObject);
+			if (F<uint32_t>(o, O_PARENT) != pieceID) continue;
+			uint32_t childID = (uint32_t(d.id) << 16) | uint32_t(i);
+			if (Game::instance.c_GoreLog->Value())
+				Logger::log << "[Gore] stripped a piece's attached " << TagPath(F<uint32_t>(o, 0)) << " (type " << F<uint16_t>(o, O_TYPE) << ")" << std::endl;
+			DeleteObject(childID);
+			removed++;
+		}
+		return removed;
+	}
+
+	// Fresh loose drops near a point (not in the pre-gib snapshot): a
+	// piece's death/expiry drops. The original body's own death drop
+	// predates the snapshot, so it is in known[] and survives - exactly
+	// one normal drop set remains.
+	void DeleteFreshLooseNear(const Vector3& at, float radius)
+	{
+		ObjectTable& table = Helpers::GetObjectTable();
+		for (int i = 0; table.elements && i < table.currentSize; i++)
+		{
+			ObjectDatum& d = table.elements[i];
+			if (!d.dynamicObject || d.id == 0) continue;
+			uint8_t* o = reinterpret_cast<uint8_t*>(d.dynamicObject);
+			if (!IsLooseItem(o)) continue;
+			uint32_t id = (uint32_t(d.id) << 16) | uint32_t(i);
+			bool old = false;
+			for (int k = 0; k < knownCount && !old; k++) old = known[k] == id;
+			if (old) continue;
+			Vector3 pos = F<Vector3>(o, O_POSITION);
+			float dx = pos.x - at.x, dy = pos.y - at.y, dz = pos.z - at.z;
+			if (dx * dx + dy * dy + dz * dz < radius * radius)
+			{
+				Logger::log << "[Gore] removed a piece's dropped " << TagPath(F<uint32_t>(o, 0)) << " (type " << F<uint16_t>(o, O_TYPE) << ")" << std::endl;
+				DeleteObject(id);
 			}
 		}
 	}
@@ -562,16 +635,9 @@ namespace
 
 		// A unit made this way can come with its starting weapons: anything
 		// attached goes before the kill, or the death drops it on the floor.
-		int removed = 0;
-		for (int guard = 0; guard < 16; guard++)
-		{
-			uint32_t child = F<uint32_t>(obj, O_FIRST_CHILD);
-			if (child == NONE || !GetObject(child)) break;
-			DeleteObject(child);
-			removed++;
-			obj = GetObject(id);
-			if (!obj) { piece->object = NONE; return; }
-		}
+		int removed = DeleteChildrenOf(id);
+		obj = GetObject(id);
+		if (!obj) { piece->object = NONE; return; }
 		if (F<uint16_t>(obj, O_TYPE) == 0)
 		{
 			if (Game::instance.c_GoreLog->Value())
@@ -616,6 +682,14 @@ namespace
 			piece->object = NONE;
 			return;
 		}
+		{ // anything the kill itself shook loose (drops spawn during death)
+			int stripped = DeleteChildrenOf(id);
+			DeleteFreshLooseNear(F<Vector3>(obj, O_POSITION), 2.f);
+			if (stripped && Game::instance.c_GoreLog->Value())
+				Logger::log << "[Gore] piece " << std::hex << id << std::dec << ": stripped " << stripped << " more attached objects after its kill" << std::endl;
+			obj = GetObject(id);
+			if (!obj) { piece->object = NONE; return; }
+		}
 		F<uint16_t>(obj, O_DAMAGE_FLAGS) |= (1 << 11); // cannot take damage: no second gib
 		F<uint32_t>(obj, O_FLAGS) |= (1u << 17);       // never collected as garbage early
 
@@ -657,7 +731,7 @@ namespace
 		EffectOnObject(blood, id, "body");
 		piece->trailEffect = blood;
 		piece->splatEffect = splat != NONE ? splat : blood;
-		piece->ticks = 0; piece->airborne = true; piece->splats = 0; piece->hunter = p.hunter;
+		piece->ticks = 0; piece->airborne = true; piece->splats = 0; piece->hunter = p.hunter; piece->player = p.player;
 		if (bCollapseFailed || !collapse) F<uint32_t>(obj, O_FLAGS) |= 1u; // never a standing whole copy
 	}
 
@@ -666,6 +740,11 @@ namespace
 		uint8_t* unit = GetObject(p.unit);
 		if (!unit || F<uint16_t>(unit, O_TYPE) != 0) return;
 		uint32_t def = F<uint32_t>(unit, 0);
+		if (IsMachineUnit(unit))
+		{
+			if (Game::instance.c_GoreLog->Value()) Logger::log << "[Gore] " << TagPath(def) << " machine/not organic, no gib" << std::endl;
+			return;
+		}
 		uint8_t* obje = TagData(def);
 		if (!obje) return;
 		uint8_t* model = TagData(F<uint32_t>(obje, OBJE_MODEL));
@@ -748,13 +827,21 @@ namespace
 				used |= masks[part];
 				parts++;
 			}
+			// Safety cap: a model whose split would spawn more than
+			// MAX_GIB_PIECES pieces aborts to a normal death + blood
+			// only, so no weird model can ever explode into dozens.
+			if (parts > MAX_GIB_PIECES)
+			{
+				Logger::log << "[Gore] " << TagPath(def) << ": split would spawn " << parts << " pieces (cap " << MAX_GIB_PIECES << "): aborting gib, blood only" << std::endl;
+				parts = 0;
+			}
 			if (parts >= 2)
 			{
 				for (int part = 0; part < NUM_PARTS; part++)
 					if (masks[part]) SpawnCopy(GetObject(p.unit), p.unit, masks[part], p, trail != NONE ? trail : blood);
 			}
 		}
-		Logger::log << "[Gore] " << TagPath(def) << " came apart into " << parts << " pieces (" << (bones ? "bones" : "regions") << "), force " << p.force << (p.hunter ? " (hunter tank gib)" : "") << (p.shotgun ? " (shotgun point-blank)" : "") << std::endl;
+		Logger::log << "[Gore] " << TagPath(def) << " came apart into " << parts << " pieces (" << (bones ? "bones" : "regions") << "), force " << p.force << (p.hunter ? " (hunter tank gib)" : "") << (p.shotgun ? " (shotgun point-blank)" : "") << (p.player ? " (player)" : "") << std::endl;
 
 		// The corpse goes when it split; a one-region model just bleeds and stays.
 		if (parts >= 2)
@@ -1076,8 +1163,14 @@ void Gore::PostDamage(void* damage, uint32_t objectID, uint32_t preDeadFlag, int
 	if (!unit || F<uint16_t>(unit, O_TYPE) != 0) return;          // bipeds only
 	if (!(F<uint16_t>(unit, O_DAMAGE_FLAGS) & 4)) return;          // it has to be dead now
 	if (F<uint32_t>(unit, O_FLAGS) & 1) return;                    // (hidden)
-	if (F<uint32_t>(unit, U_PLAYER) != NONE) return;               // the Chief: later milestone
 	if (!IsSinglePlayer()) return;
+	bool isPlayer = IsPlayerUnit(objectID);
+	if (IsMachineUnit(unit))
+	{
+		if (Game::instance.c_GoreLog->Value())
+			Logger::log << "[Gore] " << TagPath(F<uint32_t>(unit, 0)) << " machine/not organic, no gib" << std::endl;
+		return;
+	}
 	uint8_t* d = reinterpret_cast<uint8_t*>(damage);
 	const UnitType* type = TypeOf(F<uint32_t>(unit, 0));
 	bool headshot = false, hunter = false, shotgun = false;
@@ -1116,6 +1209,7 @@ void Gore::PostDamage(void* damage, uint32_t objectID, uint32_t preDeadFlag, int
 		p.headshot = headshot;
 		p.hunter = hunter;
 		p.shotgun = shotgun;
+		p.player = isPlayer;
 		p.vehicleHit = lastVehicleHit;
 		memcpy(p.vehicleVel, lastVehicleVel, sizeof(p.vehicleVel));
 		p.time = GetTickCount64();
@@ -1142,6 +1236,17 @@ void Gore::Update()
 			Gib(copy);
 		}
 		SweepDrops();
+		{ // player pieces: catch drops their deaths shake loose late
+			static ULONGLONG lastWatch = 0;
+			ULONGLONG now0 = GetTickCount64();
+			if (now0 - lastWatch >= 250)
+			{
+				lastWatch = now0;
+				for (Piece& piece : pieces)
+					if (piece.player && piece.object != NONE && now0 - piece.born < 10000)
+						if (uint8_t* po = GetObject(piece.object)) DeleteFreshLooseNear(F<Vector3>(po, O_POSITION), 2.f);
+			}
+		}
 		activePieces = 0;
 		for (Piece& piece : pieces) if (piece.object != NONE) activePieces++;
 		ULONGLONG now = GetTickCount64();
@@ -1150,7 +1255,11 @@ void Gore::Update()
 		{
 			if (piece.object == NONE) continue;
 			if (!GetObject(piece.object)) { piece.object = NONE; continue; }
-			if (now - piece.born > life) { DeleteObject(piece.object); piece.object = NONE; }
+			if (now - piece.born > life)
+			{ // arm a sweep first: whatever its deletion drops is fresh meat
+				SnapshotWeapons(F<Vector3>(GetObject(piece.object), O_POSITION));
+				DeleteObject(piece.object); piece.object = NONE;
+			}
 		}
 	}
 	__except (EXCEPTION_EXECUTE_HANDLER)
