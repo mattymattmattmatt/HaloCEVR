@@ -130,7 +130,7 @@ namespace
 
 	// Hunter direct-hit credit: 10 ticks at 30 ticks/s = 1/3 s. The shell's
 	// detonation, not its impact damage, usually lands the killing blow.
-	struct HunterHit { uint32_t unit = NONE; ULONGLONG time = 0; float dir[3]{}; };
+	struct HunterHit { uint32_t unit = NONE; ULONGLONG time = 0; float dir[3]{}; float epi[3]{}; };
 	constexpr ULONGLONG HUNTER_WINDOW_MS = 333;
 	constexpr int MAX_HUNTER_HITS = 8;
 	HunterHit hunterHits[MAX_HUNTER_HITS];
@@ -208,28 +208,58 @@ namespace
 	{
 		ULONGLONG now = GetTickCount64();
 		bool dead = (F<uint16_t>(unit, O_DAMAGE_FLAGS) & 4) != 0;
-		if (!dead && Game::instance.c_GoreHunterTank && Game::instance.c_GoreHunterTank->Value() && IsHunterUnit(unit))
+		if (!dead && IsHunterUnit(unit))
 		{
+			// Decisive logging: EVERY damage event on a Hunter, raw.
 			std::string what = LowerPath(F<uint32_t>(d, D_DEFINITION));
 			uint32_t flags = F<uint32_t>(d, D_FLAGS);
 			int16_t cat = DamageCategory(d);
-			// Direct impact only: from a weapon, not AoE, explosive/mounted
-			// category (the coax MG bullet is category bullet and excluded);
-			// an unreadable category falls back to the tag path alone.
-			if (what.find("scorpion") != std::string::npos && !(flags & 1) && (flags & DFLAG_FROM_WEAPON) &&
-				(cat < 0 || cat == CAT_HIGHEXPLOSIVE || cat == CAT_MOUNTEDWEAPON))
+			bool scorpion = what.find("scorpion") != std::string::npos;
+			bool aoe = (flags & 1) != 0;
+			float* epi = &F<float>(d, D_EPICENTER);
+			float* cen = &F<float>(unit, O_CENTRE);
+			float radius = F<float>(unit, O_RADIUS);
+			float dx = epi[0]-cen[0], dy = epi[1]-cen[1], dz = epi[2]-cen[2];
+			float dCentre = sqrtf(dx*dx+dy*dy+dz*dz);
+			float clear = dCentre - radius; // <0: epicentre inside the bounding sphere
+			uint32_t ownerID = F<uint32_t>(d, D_OWNER_OBJECT);
+			uint8_t* ownerObj = ownerID != NONE ? GetObject(ownerID) : nullptr;
+			bool tankOn = Game::instance.c_GoreHunterTank && Game::instance.c_GoreHunterTank->Value();
+			// Chosen direct-hit signals (retail gives a shell NO separate
+			// non-AoE impact event on the unit - the log of 2026-10-17 shows
+			// only 'vehicles\\scorpion\\shell explosion' AoE plus a generic
+			// 'weapons\\frag grenade\\shock wave' event from the same blast):
+			//  A) legacy: scorpion, not AoE, from a weapon, explosive/mounted
+			//     category (coax bullet excluded; unreadable cat falls back);
+			//  B) geometric: scorpion AoE whose epicentre is at the Hunter's
+			//     body (inside its bounding sphere, or within 0.30 wu past it).
+			// A grenade creates neither: its tag is not scorpion.
+			bool directA = scorpion && !aoe && (flags & DFLAG_FROM_WEAPON) && (cat < 0 || cat == CAT_HIGHEXPLOSIVE || cat == CAT_MOUNTEDWEAPON);
+			bool directB = scorpion && aoe && clear <= 0.30f;
+			bool record = tankOn && (directA || directB);
+			if (Game::instance.c_GoreLog->Value())
+				Logger::log << "[Gore] hunter damage: '" << TagPath(F<uint32_t>(d, D_DEFINITION)) << "' cat " << (int)cat
+					<< " flags 0x" << std::hex << flags << std::dec << " aoe " << (aoe ? 1 : 0)
+					<< " owner " << (ownerObj ? TagPath(F<uint32_t>(ownerObj, 0)) : "(none)") << " type " << (ownerObj ? (int)F<uint16_t>(ownerObj, O_TYPE) : -1)
+					<< " epi-centre " << dCentre << " wu, clear " << clear << " wu (radius " << radius << ")"
+					<< " GoreHunterTank " << (tankOn ? 1 : 0) << (record ? " -> DIRECT HIT recorded" : (scorpion ? " -> scorpion, not direct" : " -> not scorpion")) << std::endl;
+			if (record)
 			{
 				HunterHit* slot = nullptr;
 				for (HunterHit& h : hunterHits) if (h.unit == unitID) { slot = &h; break; }
 				if (!slot) for (HunterHit& h : hunterHits) if (h.unit == NONE || now - h.time > HUNTER_WINDOW_MS) { slot = &h; break; }
 				if (!slot) slot = &hunterHits[0];
 				slot->unit = unitID; slot->time = now;
+				for (int k = 0; k < 3; k++) slot->epi[k] = epi[k];
 				float* dir = &F<float>(d, D_DIRECTION);
 				float len = sqrtf(dir[0]*dir[0]+dir[1]*dir[1]+dir[2]*dir[2]);
 				if (len > 0.0001f) for (int k=0;k<3;k++) slot->dir[k]=dir[k]/len;
+				else if (directB) { // an AoE blast's way: from epicentre into the body
+					float bx = -dx, by = -dy, bz = -dz; float bl = sqrtf(bx*bx+by*by+bz*bz);
+					if (bl > 0.0001f) { slot->dir[0]=bx/bl; slot->dir[1]=by/bl; slot->dir[2]=bz/bl; }
+					else { slot->dir[0]=slot->dir[1]=0.f; slot->dir[2]=1.f; }
+				}
 				else { slot->dir[0]=slot->dir[1]=0.f; slot->dir[2]=1.f; }
-				if (Game::instance.c_GoreLog->Value())
-					Logger::log << "[Gore] scorpion shell direct hit on hunter " << TagPath(F<uint32_t>(unit, 0)) << " (recorded)" << std::endl;
 			}
 		}
 		if (!dead && Game::instance.c_GoreShotgun && Game::instance.c_GoreShotgun->Value() &&
@@ -260,6 +290,8 @@ namespace
 						float dist = sqrtf(dx*dx+dy*dy+dz*dz) * METRES_PER_WU -
 							(F<float>(shooter, O_RADIUS) + F<float>(unit, O_RADIUS)) * METRES_PER_WU;
 						blast->distance = dist < 0.f ? 0.f : dist;
+						if (Game::instance.c_GoreLog->Value())
+							Logger::log << "[Gore] shotgun blast tracked on " << TagPath(F<uint32_t>(unit, 0)) << ": clear distance " << blast->distance << " m (range " << (Game::instance.c_GoreShotgunRange ? Game::instance.c_GoreShotgunRange->Value() : 2.f) << " m)" << std::endl;
 					}
 					blast->last = now; blast->pellets++;
 				}
@@ -911,6 +943,12 @@ bool Gore::Init()
 	if (!fnEffectOnMarker) Logger::log << "[Gore] effect function not found: gibs without blood bursts" << std::endl;
 	bActive = true;
 	Logger::log << "[Gore] active" << std::endl;
+	Logger::log << "[Gore] config: GoreEnabled=1 GoreThresholdScale=" << Game::instance.c_GoreThresholdScale->Value()
+		<< " GoreHeadshots=" << (Game::instance.c_GoreHeadshots->Value() ? 1 : 0)
+		<< " GoreShotgun=" << (Game::instance.c_GoreShotgun && Game::instance.c_GoreShotgun->Value() ? 1 : 0)
+		<< " GoreShotgunRange=" << (Game::instance.c_GoreShotgunRange ? Game::instance.c_GoreShotgunRange->Value() : -1.f)
+		<< " GoreHunterTank=" << (Game::instance.c_GoreHunterTank && Game::instance.c_GoreHunterTank->Value() ? 1 : 0)
+		<< " GoreLog=" << (Game::instance.c_GoreLog->Value() ? 1 : 0) << " (keys missing from VR/config.txt keep these defaults)" << std::endl;
 	return true;
 }
 
@@ -966,33 +1004,36 @@ namespace
 				<< (hit ? "is the head: decapitate" : "is not the head") << std::endl;
 		return hit;
 	}
-	// A Hunter's killing hit judged: only a scorpion shell that hit it
-	// directly gibs it (its impact, or the detonation within the 10-tick
-	// credit window). Splash with no record, and everything else, refused.
+	// A Hunter's killing hit judged. Retail wrinkle (log of 2026-10-17):
+	// one shell detonation delivers BOTH 'vehicles\\scorpion\\shell
+	// explosion' damage AND a generic 'weapons\\frag grenade\\shock wave'
+	// event at the same epicentre, and either can be the killing event -
+	// so a fresh direct-hit record qualifies the kill by EPICENTRE, not
+	// by the killing tag's name alone. A thrown grenade can never create
+	// a record (its tag is not scorpion), so it can never gib a Hunter.
 	float HunterTankForce(uint8_t* unit, uint8_t* d, uint32_t unitID)
 	{
 		if (!Game::instance.c_GoreHunterTank || !Game::instance.c_GoreHunterTank->Value()) return 0.f;
 		std::string what = LowerPath(F<uint32_t>(d, D_DEFINITION));
-		if (what.find("scorpion") == std::string::npos)
-		{
-			if (Game::instance.c_GoreLog->Value())
-				Logger::log << "[Gore] hunter killed by " << TagPath(F<uint32_t>(d, D_DEFINITION)) << " not gibbed: only a direct scorpion shell gibs a hunter" << std::endl;
-			return 0.f;
-		}
 		ULONGLONG now = GetTickCount64();
+		float* epi = &F<float>(d, D_EPICENTER);
 		for (HunterHit& h : hunterHits)
 		{
-			if (h.unit == unitID && now - h.time <= HUNTER_WINDOW_MS)
-			{
-				for (int k = 0; k < 3; k++) lastHunterDir[k] = h.dir[k];
-				h.unit = NONE; // spent
-				if (Game::instance.c_GoreLog->Value())
-					Logger::log << "[Gore] hunter gibbed by direct scorpion shell hit (direct impact " << (now - h.time) / 33 << " ticks ago)" << std::endl;
-				return 2.8f;
-			}
+			if (h.unit != unitID || now - h.time > HUNTER_WINDOW_MS) continue;
+			float dx = epi[0]-h.epi[0], dy = epi[1]-h.epi[1], dz = epi[2]-h.epi[2];
+			float epiDist = sqrtf(dx*dx+dy*dy+dz*dz);
+			bool qualifies = what.find("scorpion") != std::string::npos || epiDist <= 1.0f;
+			if (Game::instance.c_GoreLog->Value())
+				Logger::log << "[Gore] hunter kill judged: killing damage '" << TagPath(F<uint32_t>(d, D_DEFINITION)) << "', direct hit " << (now - h.time) / 33
+					<< " ticks ago, killing epicentre " << epiDist << " wu from the shell's -> " << (qualifies ? "GIBS" : "not this shell's kill") << std::endl;
+			if (!qualifies) return 0.f;
+			for (int k = 0; k < 3; k++) lastHunterDir[k] = h.dir[k];
+			h.unit = NONE; // spent
+			return 2.8f;
 		}
 		if (Game::instance.c_GoreLog->Value())
-			Logger::log << "[Gore] hunter killed by " << TagPath(F<uint32_t>(d, D_DEFINITION)) << " not gibbed: scorpion splash, no direct shell hit on record" << std::endl;
+			Logger::log << "[Gore] hunter killed by " << TagPath(F<uint32_t>(d, D_DEFINITION)) << " not gibbed: "
+				<< (what.find("scorpion") != std::string::npos ? "scorpion splash, no direct shell hit on record" : "only a direct scorpion shell gibs a hunter") << std::endl;
 		return 0.f;
 	}
 
@@ -1044,6 +1085,8 @@ void Gore::PostDamage(void* damage, uint32_t objectID, uint32_t preDeadFlag, int
 	if (IsHunterUnit(unit))
 	{
 		// Hunters never gib - except a direct Scorpion shell (GoreHunterTank).
+		// Only the killing transition is judged; corpse hits just spam.
+		if (preDeadFlag != 1) return;
 		force = HunterTankForce(unit, d, objectID);
 		if (force < 1.f) return;
 		hunter = true;
