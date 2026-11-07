@@ -420,5 +420,6 @@ public:
 	BoolProperty* c_GoreWoundDrips = nullptr;
 	BoolProperty* c_GoreImpact = nullptr;
 	BoolProperty* c_GoreTrails = nullptr;
+	BoolProperty* c_GoreFootprints = nullptr;
 };
 

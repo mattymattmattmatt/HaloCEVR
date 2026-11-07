@@ -278,4 +278,29 @@ namespace GoreRules
 	{
 		return isLocalPlayer && parts >= 2;
 	}
+
+	struct Vec3
+	{
+		float x = 0.f, y = 0.f, z = 0.f;
+	};
+
+	// OpenCE bleed_downhill. Return value is the slope's sine (0 on flat ground).
+	// Below about 6.5 degrees a pool does not start a stream.
+	inline float Downhill(Vec3 normal, Vec3& out)
+	{
+		out.x = normal.x * normal.z;
+		out.y = normal.y * normal.z;
+		out.z = normal.z * normal.z - 1.f;
+		const float mag = std::sqrt(out.x * out.x + out.y * out.y + out.z * out.z);
+		if (mag > 0.0001f)
+		{
+			out.x /= mag; out.y /= mag; out.z /= mag;
+		}
+		return mag;
+	}
+
+	inline bool SlopeStreams(float sine)
+	{
+		return sine > 0.113f;
+	}
 }

@@ -161,6 +161,22 @@ static void TestBody()
 	Expect(!GoreRules::RetainLocalBody(true, 1), "a body that did not split is left to the game");
 }
 
+static void TestSlope()
+{
+	GoreRules::Vec3 flat{ 0.f, 0.f, 1.f };
+	GoreRules::Vec3 down;
+	const float flatSine = GoreRules::Downhill(flat, down);
+	Expect(flatSine < 0.02f, "flat ground has no downhill");
+	Expect(!GoreRules::SlopeStreams(flatSine), "flat ground does not stream");
+	GoreRules::Vec3 tilt{ 0.42f, 0.f, 0.91f };
+	const float len = std::sqrt(tilt.x * tilt.x + tilt.z * tilt.z);
+	tilt.x /= len; tilt.z /= len;
+	const float sine = GoreRules::Downhill(tilt, down);
+	Expect(sine > 0.3f, "a tilt has a downhill");
+	Expect(GoreRules::SlopeStreams(sine), "a tilt streams");
+	Expect(down.x > 0.5f, "downhill follows the tilt");
+}
+
 int main()
 {
 	TestBursts();
@@ -168,6 +184,7 @@ int main()
 	TestDrip();
 	TestTrail();
 	TestBody();
+	TestSlope();
 	if (g_failed)
 	{
 		std::printf("%d failed\n", g_failed);
