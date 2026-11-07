@@ -1127,9 +1127,9 @@ namespace
 			const bool dead = (F<uint16_t>(unit, O_DAMAGE_FLAGS) & 4) != 0;
 			const bool inVehicle = F<uint32_t>(unit, O_PARENT) != NONE;
 			const bool onGround = (F<uint32_t>(unit, O_FLAGS) & 2u) != 0;
-			const bool near = !havePlayer || ((pos.x - playerAt.x) * (pos.x - playerAt.x) + (pos.y - playerAt.y) * (pos.y - playerAt.y) + (pos.z - playerAt.z) * (pos.z - playerAt.z) < 1600.f);
+			const bool inRange = !havePlayer || ((pos.x - playerAt.x) * (pos.x - playerAt.x) + (pos.y - playerAt.y) * (pos.y - playerAt.y) + (pos.z - playerAt.z) * (pos.z - playerAt.z) < 1600.f);
 
-			if (WoundDripsOn() && near)
+			if (WoundDripsOn() && inRange)
 			{
 				DripUnit* tracked = nullptr;
 				DripUnit* freeSlot = nullptr;
