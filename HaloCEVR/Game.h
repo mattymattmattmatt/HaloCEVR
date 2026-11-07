@@ -416,5 +416,9 @@ public:
 	FloatProperty* c_GoreShotgunRange = nullptr;
 	BoolProperty* c_GoreHunterTank = nullptr;
 	BoolProperty* c_GoreLog = nullptr;
+	FloatProperty* c_GoreBloodAmount = nullptr;
+	BoolProperty* c_GoreWoundDrips = nullptr;
+	BoolProperty* c_GoreImpact = nullptr;
+	BoolProperty* c_GoreTrails = nullptr;
 };
 

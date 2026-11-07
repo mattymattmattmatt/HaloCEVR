@@ -2,7 +2,7 @@ name: Build (gore)
 
 on:
   push:
-    branches: [gore, gore-shotgun-hunter]
+    branches: [gore, gore-shotgun-hunter, cursor/pc-vr-gore-blood-724a]
   workflow_dispatch:
 
 jobs:
