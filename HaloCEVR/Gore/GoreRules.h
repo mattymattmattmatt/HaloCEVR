@@ -197,7 +197,8 @@ namespace GoreRules
 	{
 		amount = ClampAmount(amount);
 		if (amount <= 0.f) return 1000000;
-		int gap = static_cast<int>(400.f / amount);
+		// 300 ms is 9 ticks at 30 Hz, OpenCE's minimum gap between drops.
+		int gap = static_cast<int>(300.f / amount);
 		if (standing) gap *= 3;
 		if (gap < 200) gap = 200;
 		if (gap > 4000) gap = 4000;
@@ -205,14 +206,41 @@ namespace GoreRules
 	}
 
 	// sinceMs is time since this unit's last drop. movedWu is horizontal
-	// distance since that drop. Standing units wait longer. 0.15 wu is about
-	// half a metre, inside OpenCE's 0.4 to 0.8 m stride.
+	// distance since that drop. 0.18 wu is about 0.55 m, inside OpenCE's
+	// 0.4 to 0.8 m gap. Standing units wait three times as long.
 	inline bool DripEmitNow(int sinceMs, float movedWu, bool standing, float amount)
 	{
 		if (ClampAmount(amount) <= 0.f) return false;
 		if (sinceMs < DripGapMs(amount, false)) return false;
-		if (!standing && movedWu >= 0.15f) return true;
+		if (!standing && movedWu >= 0.18f) return true;
 		return standing && sinceMs >= DripGapMs(amount, true);
+	}
+
+	// OpenCE gore_piece_launch: force clamped 1..3 times 0.05..0.12 wu/tick.
+	// scale 1 is that speed. 0 stops the toss. Capped at 2.
+	inline float LaunchSpeedWu(float force, float zeroToOne, float scale)
+	{
+		float f = force < 1.f ? 1.f : (force > 3.f ? 3.f : force);
+		float u = zeroToOne < 0.f ? 0.f : (zeroToOne > 1.f ? 1.f : zeroToOne);
+		float s = scale < 0.f ? 0.f : (scale > 2.f ? 2.f : scale);
+		return f * (0.05f + 0.07f * u) * s;
+	}
+
+	// OpenCE spin magnitude is 0.1..0.45 rad/tick, not multiplied by force.
+	inline float LaunchSpin(float zeroToOne, float scale)
+	{
+		float u = zeroToOne < 0.f ? 0.f : (zeroToOne > 1.f ? 1.f : zeroToOne);
+		float s = scale < 0.f ? 0.f : (scale > 2.f ? 2.f : scale);
+		return (0.1f + 0.35f * u) * s;
+	}
+
+	// OpenCE footprint strides, in world units. Human boot is 0.75 m.
+	inline float StrideWu(bool hunter, bool elite, bool grunt)
+	{
+		if (hunter) return 1.3f / MetresPerWorldUnit;
+		if (elite) return 0.95f / MetresPerWorldUnit;
+		if (grunt) return 0.45f / MetresPerWorldUnit;
+		return 0.75f / MetresPerWorldUnit;
 	}
 
 	struct Disc

@@ -421,5 +421,7 @@ public:
 	BoolProperty* c_GoreImpact = nullptr;
 	BoolProperty* c_GoreTrails = nullptr;
 	BoolProperty* c_GoreFootprints = nullptr;
+	FloatProperty* c_GoreLaunchScale = nullptr;
+	BoolProperty* c_GoreTyreMarks = nullptr;
 };
 

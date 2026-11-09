@@ -126,7 +126,12 @@ static void TestDrip()
 	elite = GoreRules::StepDrip(elite, e);
 	Expect(!GoreRules::Dripping(elite), "a shield that never returns is given up at 90 s");
 	Expect(!GoreRules::DripEmitNow(100, 1.f, false, 1.f), "drops cannot stack every frame");
-	Expect(GoreRules::DripEmitNow(400, 0.2f, false, 1.f), "a moving wound drops about every half metre");
+	Expect(GoreRules::DripEmitNow(300, 0.2f, false, 1.f), "a moving wound drops about every half metre");
+	Expect(GoreRules::LaunchSpeedWu(1.f, 0.f, 1.f) > 0.049f && GoreRules::LaunchSpeedWu(1.f, 0.f, 1.f) < 0.051f, "recomp slowest launch");
+	Expect(GoreRules::LaunchSpeedWu(2.2f, 1.f, 1.f) < 0.27f, "shotgun force stays under the old 0.35 wu/tick toss");
+	Expect(GoreRules::LaunchSpeedWu(2.8f, 1.f, 0.5f) < GoreRules::LaunchSpeedWu(2.8f, 1.f, 1.f), "launch scale slows the toss");
+	Expect(GoreRules::LaunchSpin(1.f, 1.f) < 0.46f && GoreRules::LaunchSpin(0.f, 1.f) > 0.09f, "spin is not multiplied by force");
+	Expect(GoreRules::StrideWu(false, false, true) < GoreRules::StrideWu(false, true, false), "a grunt steps shorter than an elite");
 	Expect(!GoreRules::DripEmitNow(400, 0.01f, true, 1.f), "standing waits longer");
 	Expect(GoreRules::DripEmitNow(1200, 0.01f, true, 1.f), "standing still drops eventually");
 	Expect(!GoreRules::DripEmitNow(5000, 1.f, false, 0.f), "amount 0 emits nothing");
