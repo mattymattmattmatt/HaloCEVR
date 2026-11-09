@@ -762,6 +762,7 @@ namespace
 	}
 
 	float BloodAmount();
+	float LaunchScale();
 	void EmitBlood(uint32_t effect, uint32_t object, int count);
 	void RememberSpot(uint32_t effect, const Vector3& at);
 
