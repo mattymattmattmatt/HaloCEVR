@@ -424,6 +424,7 @@ namespace
 	}
 
 	void SnapshotWeapons(const Vector3& at, ULONGLONG durationMs = 10000);
+	float LaunchScale();
 
 	Piece* NewPiece()
 	{
