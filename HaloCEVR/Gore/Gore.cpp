@@ -1054,9 +1054,13 @@ namespace
 		slot->born = GetTickCount64();
 		slot->live = true;
 	}
+	bool GroundOn()
+	{
+		return bGround;
+	}
 	bool FootprintsOn()
 	{
-		return bGround && Game::instance.c_GoreFootprints && Game::instance.c_GoreFootprints->Value();
+		return GroundOn() && Game::instance.c_GoreFootprints && Game::instance.c_GoreFootprints->Value();
 	}
 	bool RetailGoreExe()
 	{
@@ -1124,7 +1128,7 @@ namespace
 	}
 	void RememberGround(uint32_t decal, const Vector3& at)
 	{
-		if (!FootprintsOn() || decal == NONE) return;
+		if (!GroundOn() || decal == NONE) return;
 		BloodSpot* slot = nullptr;
 		for (BloodSpot& s : spots) if (!s.live) { slot = &s; break; }
 		if (!slot)
@@ -1233,7 +1237,7 @@ namespace
 	}
 	void NotePool(uint32_t objectID, uint8_t* unit)
 	{
-		if (!FootprintsOn() || IsPieceID(objectID) || NoFlesh(unit)) return;
+		if (!GroundOn() || IsPieceID(objectID) || NoFlesh(unit)) return;
 		if ((F<uint16_t>(unit, O_DAMAGE_FLAGS) & 4) == 0) return;
 		if ((F<uint32_t>(unit, O_FLAGS) & 2u) == 0) return;
 		const float* vel = &F<float>(unit, O_VELOCITY);
@@ -1400,7 +1404,7 @@ namespace
 		const int bursts = GoreRules::ScaledBursts(BloodAmount(), 2);
 		EmitBlood(blood, objectID, bursts);
 		if (bursts > 0) RememberSpot(blood, pos);
-		if (FootprintsOn())
+		if (GroundOn())
 		{
 			Vector3 landed;
 			const uint32_t decal = DecalFor(unit);
@@ -1649,7 +1653,7 @@ void Gore::PostObjectUpdate(uint32_t objectID)
 					{
 						const Vector3 at = F<Vector3>(landed, O_POSITION);
 						RememberSpot(piece.splatEffect, at);
-						if (FootprintsOn())
+						if (GroundOn())
 						{
 							Vector3 hit;
 							const uint32_t decal = DecalFor(landed);
