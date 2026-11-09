@@ -1,4 +1,5 @@
 #include "Gore.h"
+#include "GoreRules.h"
 #include <windows.h>
 #include <cmath>
 #include <cstring>
@@ -10,6 +11,8 @@
 #include "../Helpers/Objects.h"
 #include "../Helpers/Assets.h"
 #include "../Helpers/Maths.h"
+#include "../Helpers/Menus.h"
+#include "../Helpers/Version.h"
 
 // Retail layouts (Halo PC 1.0.10). The object fields are the decompile's
 // object_data shifted by the 0x50 bytes retail keeps before the position
@@ -30,6 +33,7 @@ namespace
 	constexpr int O_TYPE = 0xB4;
 	constexpr int O_TEAM = 0xB8;
 	constexpr int O_VARIANT = 0xBE;
+	constexpr int O_MAX_SHIELD = 0xDC;   // Objects.h baseShield
 	constexpr int O_BODY = 0xE0;
 	constexpr int O_DAMAGE_FLAGS = 0x106;    // bit 2 dead, bit 11 cannot take damage
 	constexpr int O_PARENT = 0x11C;
@@ -420,6 +424,7 @@ namespace
 	}
 
 	void SnapshotWeapons(const Vector3& at, ULONGLONG durationMs = 10000);
+	float LaunchScale();
 
 	Piece* NewPiece()
 	{
@@ -670,9 +675,18 @@ namespace
 		F<float>(damage, D_SCALE) = 50.f;
 		F<float>(obj, O_BODY) = 0.0001f;
 		F<float>(obj, O_BODY + 4) = 0.f; // shield (an Elite's would soak the kill)
-		bInternal = true;
-		CauseDamage(damage, id);
-		bInternal = false;
+		if (F<uint32_t>(damage, D_DEFINITION) == NONE)
+		{
+			// A fall has no damage event to copy. Mark the copy dead so it
+			// cannot stay a living duplicate. Do not invent a damage struct.
+			F<uint16_t>(obj, O_DAMAGE_FLAGS) |= 4;
+		}
+		else
+		{
+			bInternal = true;
+			CauseDamage(damage, id);
+			bInternal = false;
+		}
 		obj = GetObject(id);
 		if (!obj) { piece->object = NONE; return; }
 		if (!(F<uint16_t>(obj, O_DAMAGE_FLAGS) & 4))
@@ -704,24 +718,37 @@ namespace
 		float len = sqrtf(out[0] * out[0] + out[1] * out[1] + out[2] * out[2]);
 		if (len < 0.001f) { out[0] = p.dir[0]; out[1] = p.dir[1]; out[2] = p.dir[2]; len = 1.f; }
 		for (float& o : out) o /= len;
-		float speed = force * Rand(0.08f, 0.16f);
+		// OpenCE gore_piece_launch, times GoreLaunchScale (1 = that toss).
+		const float scale = LaunchScale();
+		float speed = GoreRules::LaunchSpeedWu(force, Rand(0.f, 1.f), scale);
 		if (p.headshot)
 		{
 			// The head flies along the bullet; the body just drops.
-			speed = keepNode >= 0 ? Rand(0.06f, 0.1f) : 0.f;
+			speed = keepNode >= 0 ? Rand(0.06f, 0.1f) * scale : 0.f;
 			if (keepNode >= 0) { out[0] = p.dir[0]; out[1] = p.dir[1]; out[2] = p.dir[2]; }
 		}
-		if (p.shotgun || p.hunter) { out[0] = p.dir[0]; out[1] = p.dir[1]; out[2] = p.dir[2]; } // pieces scatter the shot's / shell's way
-		float vel[3];
-		for (int k = 0; k < 3; k++) vel[k] = out[k] * speed + Rand(-1.f, 1.f) * speed * 0.35f;
-		vel[2] += speed * Rand(0.3f, 0.7f) + 0.04f;
+		if (p.shotgun || p.hunter) { out[0] = p.dir[0]; out[1] = p.dir[1]; out[2] = p.dir[2]; }
+		float rx = Rand(-1.f, 1.f), ry = Rand(-1.f, 1.f), rz = Rand(-1.f, 1.f);
+		float rlen = sqrtf(rx * rx + ry * ry + rz * rz);
+		if (rlen < 0.001f) rlen = 1.f;
+		rx /= rlen; ry /= rlen; rz /= rlen;
+		float vel[3] = {
+			out[0] * speed + rx * speed * 0.5f,
+			out[1] * speed + ry * speed * 0.5f,
+			out[2] * speed + fabsf(rz) * speed * 0.6f + 0.05f * scale
+		};
 		if (p.vehicleHit)
 			for (int k = 0; k < 3; k++) vel[k] += p.vehicleVel[k] * Rand(0.6f, 1.0f);
-		if (p.headshot && keepNode < 0) vel[0] = vel[1] = vel[2] = 0.f; // the body drops where it stood
+		if (p.headshot && keepNode < 0) vel[0] = vel[1] = vel[2] = 0.f;
 		float* v = &F<float>(obj, O_VELOCITY);
 		for (int k = 0; k < 3; k++) { v[k] = vel[k]; piece->vel[k] = vel[k]; }
+		float spin = GoreRules::LaunchSpin(Rand(0.f, 1.f), scale);
+		float sx = Rand(-1.f, 1.f), sy = Rand(-1.f, 1.f), sz = Rand(-1.f, 1.f);
+		float sl = sqrtf(sx * sx + sy * sy + sz * sz);
+		if (sl < 0.001f) sl = 1.f;
 		float* w = &F<float>(obj, O_ANGULAR);
-		for (int k = 0; k < 3; k++) { piece->spin[k] = Rand(-0.4f, 0.4f) * force; w[k] = piece->spin[k]; }
+		piece->spin[0] = sx / sl * spin; piece->spin[1] = sy / sl * spin; piece->spin[2] = sz / sl * spin;
+		for (int k = 0; k < 3; k++) w[k] = piece->spin[k];
 		if (p.headshot && keepNode < 0) for (int k = 0; k < 3; k++) { piece->spin[k] = 0.f; w[k] = 0.f; }
 		piece->reapply = 3; // the first updates can kill a fresh corpse's speed
 		if (Game::instance.c_GoreLog->Value())
@@ -734,6 +761,11 @@ namespace
 		piece->ticks = 0; piece->airborne = true; piece->splats = 0; piece->hunter = p.hunter; piece->player = p.player;
 		if (bCollapseFailed || !collapse) F<uint32_t>(obj, O_FLAGS) |= 1u; // never a standing whole copy
 	}
+
+	float BloodAmount();
+	float LaunchScale();
+	void EmitBlood(uint32_t effect, uint32_t object, int count);
+	void RememberSpot(uint32_t effect, const Vector3& at);
 
 	void Gib(const Pending& p)
 	{
@@ -756,16 +788,18 @@ namespace
 			trail = F<uint32_t>(coll, COLL_LOCALIZED_EFFECT);
 		}
 
-		// The burst where the unit stood, before it goes.
-		EffectOnObject(blood, p.unit, "body");
+		// The burst where the unit stood, before it goes. Amount 1 is a
+		// single burst, which is what gore did before GoreBloodAmount.
+		EmitBlood(blood, p.unit, GoreRules::ScaledBursts(BloodAmount(), 1));
+		RememberSpot(blood, F<Vector3>(unit, O_POSITION));
 		// A Hunter carries a lot of (orange, from its own collision effects)
 		// blood: three more bursts at the split. VR blood is effect-only -
 		// no decal API is ported - so extra bursts stand in for bigger splats.
 		if (p.hunter)
 		{
-			for (int b = 0; b < 3; b++) EffectOnObject(blood, p.unit, "body");
+			EmitBlood(blood, p.unit, GoreRules::ScaledBursts(BloodAmount(), 3));
 			if (Game::instance.c_GoreLog->Value())
-				Logger::log << "[Gore] hunter tank gib: 3 extra blood bursts at the split on " << TagPath(def) << std::endl;
+				Logger::log << "[Gore] hunter tank gib: extra blood bursts at the split on " << TagPath(def) << std::endl;
 		}
 
 		int parts = 0;
@@ -844,15 +878,24 @@ namespace
 		Logger::log << "[Gore] " << TagPath(def) << " came apart into " << parts << " pieces (" << (bones ? "bones" : "regions") << "), force " << p.force << (p.hunter ? " (hunter tank gib)" : "") << (p.shotgun ? " (shotgun point-blank)" : "") << (p.player ? " (player)" : "") << std::endl;
 
 		// The corpse goes when it split; a one-region model just bleeds and stays.
+		// The local player is only hidden. Deleting that unit takes away the
+		// body the retail death camera follows. Collision flags are left
+		// alone: the no-collision bit is not verified in this mod.
 		if (parts >= 2)
 		{
-			// Hidden at once (retail deletes at the end of the objects' update,
-			// so it's still in the table right after the call).
 			if (uint8_t* body = GetObject(p.unit)) F<uint32_t>(body, O_FLAGS) |= 1u;
-			DeleteObject(p.unit);
-			uint8_t* body = GetObject(p.unit);
-			if (body && !(F<uint32_t>(body, O_FLAGS) & 1u)) Logger::log << "[Gore] the original body is still visible" << std::endl;
-			else if (Game::instance.c_GoreLog->Value()) Logger::log << "[Gore] original body hidden and deleted" << (body ? " (deletion pending)" : "") << std::endl;
+			if (GoreRules::RetainLocalBody(p.player, parts))
+			{
+				if (Game::instance.c_GoreLog->Value())
+					Logger::log << "[Gore] player body hidden, not deleted, so the death camera keeps it" << std::endl;
+			}
+			else
+			{
+				DeleteObject(p.unit);
+				uint8_t* body = GetObject(p.unit);
+				if (body && !(F<uint32_t>(body, O_FLAGS) & 1u)) Logger::log << "[Gore] the original body is still visible" << std::endl;
+				else if (Game::instance.c_GoreLog->Value()) Logger::log << "[Gore] original body hidden and deleted" << (body ? " (deletion pending)" : "") << std::endl;
+			}
 		}
 	}
 }
@@ -882,6 +925,679 @@ namespace
 		return collapsed;
 	}
 
+	float BloodAmount()
+	{
+		if (!Game::instance.c_GoreBloodAmount) return 1.f;
+		return GoreRules::ClampAmount(Game::instance.c_GoreBloodAmount->Value());
+	}
+	bool WoundDripsOn()
+	{
+		return BloodAmount() > 0.f && Game::instance.c_GoreWoundDrips && Game::instance.c_GoreWoundDrips->Value();
+	}
+	bool ImpactOn()
+	{
+		return Game::instance.c_GoreImpact && Game::instance.c_GoreImpact->Value();
+	}
+	bool TrailsOn()
+	{
+		return BloodAmount() > 0.f && Game::instance.c_GoreTrails && Game::instance.c_GoreTrails->Value();
+	}
+	float LaunchScale()
+	{
+		float scale = Game::instance.c_GoreLaunchScale ? Game::instance.c_GoreLaunchScale->Value() : 1.f;
+		if (scale < 0.f) scale = 0.f;
+		if (scale > 2.f) scale = 2.f;
+		return scale;
+	}
+	ULONGLONG PieceLifeMs()
+	{
+		float seconds = Game::instance.c_GorePieceSeconds ? Game::instance.c_GorePieceSeconds->Value() : 180.f;
+		if (seconds < 1.f) seconds = 1.f;
+		if (seconds > 3600.f) seconds = 3600.f;
+		return (ULONGLONG)(seconds * 1000.f);
+	}
+	void EmitBlood(uint32_t effect, uint32_t object, int count)
+	{
+		for (int i = 0; i < count; i++) EffectOnObject(effect, object, "body");
+	}
+
+	// Area-blood positions a walker can pick up. Not decals: the effect call
+	// is what actually draws, and only while the spot is remembered.
+	struct BloodSpot { uint32_t effect = NONE; uint32_t decal = NONE; float x = 0.f, y = 0.f, z = 0.f; ULONGLONG born = 0; bool live = false; };
+	constexpr int MAX_SPOTS = 48;
+	BloodSpot spots[MAX_SPOTS];
+	struct TrailWalker { uint32_t unit = NONE; uint32_t effect = NONE; uint32_t decal = NONE; GoreRules::TrailWalker trail; float lastX = 0.f, lastY = 0.f; };
+	constexpr int MAX_WALKERS = 24;
+	TrailWalker walkers[MAX_WALKERS];
+	struct DripUnit { uint32_t id = NONE; GoreRules::DripTrack track; ULONGLONG lastEmit = 0; float lastX = 0.f, lastY = 0.f, lastZ = 0.f; bool havePos = false; };
+	constexpr int MAX_DRIPS = 64;
+	DripUnit dripUnits[MAX_DRIPS];
+	struct MotionSlot { uint16_t salt = 0; bool valid = false; GoreRules::Motion motion; };
+	MotionSlot motions[2048];
+	bool sawCampaignLoad = false;
+	bool havePlayerSample = false;
+	Vector3 playerSample;
+
+	using FnCollision = int(__cdecl*)(uint32_t flags, const float* point, const float* direction, uint32_t ignore, void* result);
+	using FnDecal = void(__cdecl*)(uint32_t definition, void* result, const float* velocity, float radius, uint32_t flag, uint32_t sequence);
+	FnCollision fnCollision = nullptr;
+	FnDecal fnDecal = nullptr;
+	bool bGround = false;
+	int groundBudget = 8;
+	bool decalsLooked = false;
+	uint32_t decalGeneric = NONE, decalGrunt = NONE, decalElite = NONE, decalHunter = NONE;
+	struct Settle { uint32_t id = NONE; int ticks = 0; bool done = false; };
+	Settle settles[32];
+	struct TyreMark { uint32_t vehicle = NONE; int node = -1; float x = 0.f, y = 0.f; bool have = false; };
+	TyreMark tyreMarks[48];
+
+	void ForgetBloodMemory()
+	{
+		for (BloodSpot& s : spots) s.live = false;
+		for (TrailWalker& w : walkers) w.unit = NONE;
+		for (DripUnit& d : dripUnits) d.id = NONE;
+		for (MotionSlot& m : motions) m.valid = false;
+		for (Settle& s : settles) s.id = NONE;
+		for (TyreMark& t : tyreMarks) t.vehicle = NONE;
+		havePlayerSample = false;
+		decalsLooked = false;
+	}
+	void ForgetPieces()
+	{
+		for (Pending& p : pending) p.unit = NONE;
+		for (Piece& p : pieces) p.object = NONE;
+		activePieces = 0;
+	}
+	bool NoFlesh(uint8_t* unit)
+	{
+		if (IsMachineUnit(unit)) return true;
+		const std::string path = LowerPath(F<uint32_t>(unit, 0));
+		return path.find("infection") != std::string::npos || path.find("carrier") != std::string::npos || path.find("engineer") != std::string::npos;
+	}
+	bool IsFloodUnit(uint8_t* unit)
+	{
+		return LowerPath(F<uint32_t>(unit, 0)).find("flood") != std::string::npos;
+	}
+	uint32_t AreaBlood(uint8_t* unit)
+	{
+		uint8_t* obje = TagData(F<uint32_t>(unit, 0));
+		if (!obje) return NONE;
+		uint8_t* coll = TagData(F<uint32_t>(obje, OBJE_COLLISION));
+		if (!coll) return NONE;
+		uint32_t blood = F<uint32_t>(coll, COLL_AREA_EFFECT);
+		if (blood == NONE) blood = F<uint32_t>(coll, COLL_DESTROYED_EFFECT);
+		return blood;
+	}
+	uint32_t DripBlood(uint8_t* unit)
+	{
+		uint8_t* obje = TagData(F<uint32_t>(unit, 0));
+		if (!obje) return NONE;
+		uint8_t* coll = TagData(F<uint32_t>(obje, OBJE_COLLISION));
+		if (!coll) return NONE;
+		uint32_t blood = F<uint32_t>(coll, COLL_LOCALIZED_EFFECT);
+		if (blood == NONE) blood = AreaBlood(unit);
+		return blood;
+	}
+	void RememberSpot(uint32_t effect, const Vector3& at)
+	{
+		if (!TrailsOn() || effect == NONE) return;
+		BloodSpot* slot = nullptr;
+		for (BloodSpot& s : spots) if (!s.live) { slot = &s; break; }
+		if (!slot)
+		{
+			slot = &spots[0];
+			for (BloodSpot& s : spots) if (s.born < slot->born) slot = &s;
+		}
+		slot->effect = effect;
+		slot->decal = NONE;
+		slot->x = at.x; slot->y = at.y; slot->z = at.z;
+		slot->born = GetTickCount64();
+		slot->live = true;
+	}
+	bool GroundOn()
+	{
+		return bGround;
+	}
+	bool FootprintsOn()
+	{
+		return GroundOn() && Game::instance.c_GoreFootprints && Game::instance.c_GoreFootprints->Value();
+	}
+	bool RetailGoreExe()
+	{
+		const char* version = Helpers::GetVersionString();
+		const char* kind = Helpers::GetGameTypeString();
+		if (!version || !kind) return false;
+		return std::strstr(version, "01.00.10") != nullptr && std::strcmp(kind, "halor") == 0;
+	}
+	uint32_t FindDecal(const char* mustHave, const char* mustNot)
+	{
+		Asset_Generic* tags = Helpers::GetAssetArray();
+		if (!tags || !mustHave) return NONE;
+		int count = 4096;
+		MEMORY_BASIC_INFORMATION mbi{};
+		if (VirtualQuery(tags, &mbi, sizeof(mbi)) && mbi.State == MEM_COMMIT)
+		{
+			const char* region = static_cast<const char*>(mbi.BaseAddress);
+			const size_t used = reinterpret_cast<char*>(tags) - region;
+			if (mbi.RegionSize > used)
+			{
+				count = static_cast<int>((mbi.RegionSize - used) / sizeof(Asset_Generic));
+				if (count > 20000) count = 20000;
+				if (count < 1) count = 1;
+			}
+		}
+		for (int i = 0; i < count; i++)
+		{
+			const bool decal = std::memcmp(tags[i].GroupID, "aced", 4) == 0 || std::memcmp(tags[i].GroupID, "deca", 4) == 0;
+			if (!decal) continue;
+			const char* path = *reinterpret_cast<char**>(reinterpret_cast<uint8_t*>(&tags[i]) + T_PATH);
+			if (!path) continue;
+			const uint32_t id = *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(&tags[i]) + 0xC);
+			if ((id & 0xFFFF) != static_cast<uint32_t>(i)) continue;
+			std::string lower = path;
+			for (char& c : lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+			if (lower.find(mustHave) == std::string::npos) continue;
+			if (mustNot && lower.find(mustNot) != std::string::npos) continue;
+			return id;
+		}
+		return NONE;
+	}
+	void CacheDecals()
+	{
+		if (decalsLooked) return;
+		decalsLooked = true;
+		decalHunter = FindDecal("blood hunter glow", nullptr);
+		if (decalHunter == NONE) decalHunter = FindDecal("blood hunter", nullptr);
+		decalElite = FindDecal("blood elite", nullptr);
+		decalGrunt = FindDecal("blood grunt", nullptr);
+		decalGeneric = FindDecal("blood splat", "hunter");
+		if (decalGeneric == NONE) decalGeneric = FindDecal("blood splat", nullptr);
+		// A map that has not finished loading has no decal tags yet. Do not
+		// remember that miss, or the whole level paints nothing.
+		if (decalGeneric == NONE && decalHunter == NONE && decalElite == NONE && decalGrunt == NONE)
+			decalsLooked = false;
+	}
+	uint32_t DecalFor(uint8_t* unit)
+	{
+		CacheDecals();
+		const std::string path = LowerPath(F<uint32_t>(unit, 0));
+		if (path.find("hunter") != std::string::npos && decalHunter != NONE) return decalHunter;
+		if (path.find("elite") != std::string::npos && path.find("flood") == std::string::npos && decalElite != NONE) return decalElite;
+		if ((path.find("grunt") != std::string::npos || path.find("jackal") != std::string::npos) && decalGrunt != NONE) return decalGrunt;
+		return decalGeneric;
+	}
+	void RememberGround(uint32_t decal, const Vector3& at)
+	{
+		if (!GroundOn() || decal == NONE) return;
+		BloodSpot* slot = nullptr;
+		for (BloodSpot& s : spots) if (!s.live) { slot = &s; break; }
+		if (!slot)
+		{
+			slot = &spots[0];
+			for (BloodSpot& s : spots) if (s.born < slot->born) slot = &s;
+		}
+		slot->effect = NONE;
+		slot->decal = decal;
+		slot->x = at.x; slot->y = at.y; slot->z = at.z;
+		slot->born = GetTickCount64();
+		slot->live = true;
+	}
+	bool NodePoint(uint8_t* obj, int node, Vector3& out)
+	{
+		if (!obj || node < 0) return false;
+		const int16_t size = F<int16_t>(obj, O_NODE_MATRICES);
+		const int16_t offset = F<int16_t>(obj, O_NODE_MATRICES + 2);
+		if (offset <= 0 || node >= size / (int)sizeof(Transform)) return false;
+		out = reinterpret_cast<Transform*>(obj + offset)[node].translation;
+		return true;
+	}
+	// The foot bone when the model has one. Otherwise a short step to that side.
+	void FootOnGround(uint8_t* unit, int side, Vector3& out)
+	{
+		uint8_t* obje = TagData(F<uint32_t>(unit, 0));
+		uint8_t* model = obje ? TagData(F<uint32_t>(obje, OBJE_MODEL)) : nullptr;
+		if (model)
+		{
+			const int count = F<int32_t>(model, MOD2_NODES);
+			uint8_t* nodes = F<uint8_t*>(model, MOD2_NODES + 4);
+			const char* want = side ? "r foot" : "l foot";
+			for (int i = 0; nodes && i < count && i < MAX_NODES; i++)
+			{
+				const char* name = reinterpret_cast<const char*>(nodes + i * MOD2_NODE_SIZE);
+				if (!name || !std::strstr(name, want)) continue;
+				if (NodePoint(unit, i, out)) return;
+			}
+		}
+		const float* forward = &F<float>(unit, O_FORWARD);
+		const float sideSign = side ? 1.f : -1.f;
+		out.x += -forward[1] * 0.08f * sideSign;
+		out.y += forward[0] * 0.08f * sideSign;
+	}
+
+	// decal_new's radius is a multiplier on the tag (0 is rewritten to 1).
+	// One structure decal. Returns the hit point.
+	bool PaintDecal(uint32_t decal, uint32_t ignore, const Vector3& at, float radius, Vector3* hitOut)
+	{
+		if (!bGround || !fnCollision || !fnDecal || decal == NONE || groundBudget <= 0 || radius <= 0.f) return false;
+		float point[3] = { at.x, at.y, at.z + 0.45f };
+		float direction[3] = { 0.f, 0.f, -1.6f };
+		uint8_t result[0x50];
+		std::memset(result, 0, sizeof(result));
+		const int hit = fnCollision(0x100061u, point, direction, ignore, result);
+		if (!hit) return false;
+		const int16_t type = *reinterpret_cast<int16_t*>(result);
+		if (type != 2) return false;
+		const float yaw = Rand(0.f, 6.2831853f);
+		const float velocity[3] = { std::cos(yaw) * 0.25f, std::sin(yaw) * 0.25f, -1.f };
+		const float used = radius * Rand(0.82f, 1.18f);
+		fnDecal(decal, result, velocity, used, 0, 0);
+		groundBudget--;
+		if (hitOut)
+		{
+			const float* p = reinterpret_cast<float*>(result + 0x18);
+			hitOut->x = p[0]; hitOut->y = p[1]; hitOut->z = p[2];
+		}
+		return true;
+	}
+	void PaintPool(uint8_t* unit, uint32_t id, const Vector3& at)
+	{
+		const uint32_t decal = DecalFor(unit);
+		Vector3 hit, normal;
+		float point[3] = { at.x, at.y, at.z + 0.45f };
+		float direction[3] = { 0.f, 0.f, -1.6f };
+		uint8_t result[0x50];
+		std::memset(result, 0, sizeof(result));
+		if (!fnCollision || !fnDecal || fnCollision(0x100061u, point, direction, id, result) == 0) return;
+		if (*reinterpret_cast<int16_t*>(result) != 2) return;
+		const float* p = reinterpret_cast<float*>(result + 0x18);
+		const float* n = reinterpret_cast<float*>(result + 0x24);
+		hit = Vector3(p[0], p[1], p[2]);
+		normal = Vector3(n[0], n[1], n[2]);
+		const float yaw = Rand(0.f, 6.2831853f);
+		const float velocity[3] = { std::cos(yaw) * 0.25f, std::sin(yaw) * 0.25f, -1.f };
+		if (decal != NONE && groundBudget > 0)
+		{
+			fnDecal(decal, result, velocity, 1.15f * Rand(0.85f, 1.15f), 0, 0);
+			groundBudget--;
+			RememberGround(decal, hit);
+		}
+		GoreRules::Vec3 slope;
+		const float sine = GoreRules::Downhill(GoreRules::Vec3{ normal.x, normal.y, normal.z }, slope);
+		if (!GoreRules::SlopeStreams(sine) || decal == NONE) return;
+		Vector3 cursor = hit;
+		for (int step = 0; step < 3; step++)
+		{
+			cursor.x += slope.x * 0.4f;
+			cursor.y += slope.y * 0.4f;
+			cursor.z += slope.z * 0.4f;
+			Vector3 landed;
+			if (!PaintDecal(decal, id, cursor, 0.7f, &landed)) break;
+			cursor = landed;
+		}
+	}
+	void NotePool(uint32_t objectID, uint8_t* unit)
+	{
+		if (!GroundOn() || IsPieceID(objectID) || NoFlesh(unit)) return;
+		if ((F<uint16_t>(unit, O_DAMAGE_FLAGS) & 4) == 0) return;
+		if ((F<uint32_t>(unit, O_FLAGS) & 2u) == 0) return;
+		const float* vel = &F<float>(unit, O_VELOCITY);
+		const float speed2 = vel[0] * vel[0] + vel[1] * vel[1] + vel[2] * vel[2];
+		if (speed2 > 0.0004f) return;
+		Settle* slot = nullptr;
+		Settle* freeSlot = nullptr;
+		for (Settle& s : settles)
+		{
+			if (s.id == objectID) slot = &s;
+			else if (!freeSlot && (s.id == NONE || !GetObject(s.id))) freeSlot = &s;
+		}
+		if (!slot) slot = freeSlot;
+		if (!slot || slot->done) return;
+		if (slot->id != objectID) { *slot = Settle(); slot->id = objectID; }
+		if (++slot->ticks < 8) return;
+		slot->done = true;
+		PaintPool(unit, objectID, F<Vector3>(unit, O_POSITION));
+	}
+	bool TyresOn()
+	{
+		return bGround && Game::instance.c_GoreTyreMarks && Game::instance.c_GoreTyreMarks->Value();
+	}
+	uint32_t BloodUnder(float x, float y, float z)
+	{
+		for (const BloodSpot& s : spots)
+		{
+			if (!s.live || s.decal == NONE) continue;
+			if (GoreRules::InsideDisc(x, y, z, GoreRules::Disc{ s.x, s.y, s.z, GoreRules::SpotRadiusWu }))
+				return s.decal;
+		}
+		ObjectTable& table = Helpers::GetObjectTable();
+		if (!table.elements) return NONE;
+		for (int i = 0; i < table.currentSize; i++)
+		{
+			ObjectDatum& datum = table.elements[i];
+			if (!datum.dynamicObject || datum.id == 0) continue;
+			uint8_t* unit = reinterpret_cast<uint8_t*>(datum.dynamicObject);
+			if (F<uint16_t>(unit, O_TYPE) != 0) continue;
+			if ((F<uint16_t>(unit, O_DAMAGE_FLAGS) & 4) == 0) continue;
+			const Vector3 at = F<Vector3>(unit, O_POSITION);
+			const float dx = x - at.x, dy = y - at.y;
+			if (fabsf(z - at.z) < 0.8f && dx * dx + dy * dy < 0.5f) return DecalFor(unit);
+		}
+		return NONE;
+	}
+	void UpdateTyres()
+	{
+		if (!TyresOn() || !IsSinglePlayer() || groundBudget <= 0) return;
+		ObjectTable& table = Helpers::GetObjectTable();
+		if (!table.elements) return;
+		for (int i = 0; i < table.currentSize && groundBudget > 0; i++)
+		{
+			ObjectDatum& datum = table.elements[i];
+			if (!datum.dynamicObject || datum.id == 0) continue;
+			uint8_t* vehicle = reinterpret_cast<uint8_t*>(datum.dynamicObject);
+			if (F<uint16_t>(vehicle, O_TYPE) != 1) continue;
+			const uint32_t id = (uint32_t(datum.id) << 16) | uint32_t(i);
+			uint8_t* obje = TagData(F<uint32_t>(vehicle, 0));
+			uint8_t* model = obje ? TagData(F<uint32_t>(obje, OBJE_MODEL)) : nullptr;
+			if (!model) continue;
+			const int count = F<int32_t>(model, MOD2_NODES);
+			uint8_t* nodes = F<uint8_t*>(model, MOD2_NODES + 4);
+			if (!nodes) continue;
+			for (int n = 0; n < count && n < MAX_NODES && groundBudget > 0; n++)
+			{
+				char name[33];
+				std::memcpy(name, nodes + n * MOD2_NODE_SIZE, 32);
+				name[32] = 0;
+				for (char& c : name) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+				if (std::strstr(name, "steering")) continue;
+				if (!std::strstr(name, "wheel") && !std::strstr(name, "tire") && !std::strstr(name, "tyre") && !std::strstr(name, "tread"))
+					continue;
+				Vector3 at;
+				if (!NodePoint(vehicle, n, at)) continue;
+				TyreMark* mark = nullptr;
+				TyreMark* freeMark = nullptr;
+				for (TyreMark& t : tyreMarks)
+				{
+					if (t.vehicle == id && t.node == n) mark = &t;
+					else if (!freeMark && (t.vehicle == NONE || !GetObject(t.vehicle))) freeMark = &t;
+				}
+				if (!mark) mark = freeMark;
+				if (!mark) continue;
+				if (mark->vehicle != id || mark->node != n) { *mark = TyreMark(); mark->vehicle = id; mark->node = n; }
+				if (mark->have)
+				{
+					const float dx = at.x - mark->x, dy = at.y - mark->y;
+					if (dx * dx + dy * dy < 0.25f * 0.25f) continue;
+				}
+				mark->x = at.x; mark->y = at.y; mark->have = true;
+				const uint32_t decal = BloodUnder(at.x, at.y, at.z);
+				if (decal == NONE) continue;
+				Vector3 landed;
+				PaintDecal(decal, id, at, 0.55f, &landed);
+			}
+		}
+	}
+
+	void QueueImpact(uint32_t id, uint8_t* unit, const GoreRules::Impact& hit)
+	{
+		for (Pending& p : pending) if (p.unit == id) return;
+		for (Pending& p : pending)
+		{
+			if (p.unit != NONE) continue;
+			p = Pending();
+			p.unit = id;
+			p.force = 1.5f;
+			p.player = IsPlayerUnit(id);
+			p.time = GetTickCount64();
+			p.dir[0] = hit.dirX; p.dir[1] = hit.dirY; p.dir[2] = hit.dirZ;
+			// No copied damage event exists for a fall. Leave the definition
+			// empty so the piece is marked dead directly. Calling
+			// object_cause_damage with a struct we invented is not safe.
+			std::memset(p.damage, 0, D_SIZE);
+			F<uint32_t>(p.damage, D_DEFINITION) = NONE;
+			Vector3 pos = F<Vector3>(unit, O_POSITION);
+			F<float>(p.damage, D_EPICENTER) = pos.x;
+			F<float>(p.damage, D_EPICENTER + 4) = pos.y;
+			F<float>(p.damage, D_EPICENTER + 8) = pos.z;
+			F<float>(p.damage, D_DIRECTION) = hit.dirX;
+			F<float>(p.damage, D_DIRECTION + 4) = hit.dirY;
+			F<float>(p.damage, D_DIRECTION + 8) = hit.dirZ;
+			return;
+		}
+	}
+	void NoteMotionAndImpact(uint32_t objectID)
+	{
+		if (objectID == NONE) return;
+		const uint16_t index = static_cast<uint16_t>(objectID & 0xFFFF);
+		if (index >= 2048) return;
+		MotionSlot& slot = motions[index];
+		uint8_t* unit = GetObject(objectID);
+		if (!unit || F<uint16_t>(unit, O_TYPE) != 0)
+		{
+			slot.valid = false;
+			return;
+		}
+		if (!IsSinglePlayer())
+		{
+			slot.valid = false;
+			return;
+		}
+		const Vector3 pos = F<Vector3>(unit, O_POSITION);
+		const float* vel = &F<float>(unit, O_VELOCITY);
+		GoreRules::Motion prev;
+		prev.valid = slot.valid && slot.salt == static_cast<uint16_t>(objectID >> 16);
+		if (prev.valid)
+		{
+			prev.x = slot.motion.x; prev.y = slot.motion.y; prev.z = slot.motion.z;
+			prev.vx = slot.motion.vx; prev.vy = slot.motion.vy; prev.vz = slot.motion.vz;
+		}
+		const GoreRules::Impact hit = GoreRules::ClassifyImpact(prev, pos.x, pos.y, pos.z, vel[0], vel[1], vel[2]);
+		slot.salt = static_cast<uint16_t>(objectID >> 16);
+		slot.valid = true;
+		slot.motion.valid = true;
+		slot.motion.x = pos.x; slot.motion.y = pos.y; slot.motion.z = pos.z;
+		slot.motion.vx = vel[0]; slot.motion.vy = vel[1]; slot.motion.vz = vel[2];
+		NotePool(objectID, unit);
+		if (!hit.qualify || !ImpactOn()) return;
+		if (IsPieceID(objectID) || (F<uint32_t>(unit, O_FLAGS) & 1u) || F<uint32_t>(unit, O_PARENT) != NONE) return;
+		if (IsHunterUnit(unit) || IsMachineUnit(unit) || IsFloodUnit(unit)) return;
+		const uint32_t blood = AreaBlood(unit);
+		const int bursts = GoreRules::ScaledBursts(BloodAmount(), 2);
+		EmitBlood(blood, objectID, bursts);
+		if (bursts > 0) RememberSpot(blood, pos);
+		if (GroundOn())
+		{
+			Vector3 landed;
+			const uint32_t decal = DecalFor(unit);
+			if (PaintDecal(decal, objectID, pos, 1.35f, &landed)) RememberGround(decal, landed);
+		}
+		const bool dead = (F<uint16_t>(unit, O_DAMAGE_FLAGS) & 4) != 0;
+		if (Game::instance.c_GoreLog && Game::instance.c_GoreLog->Value())
+			Logger::log << "[Gore] impact " << hit.metresPerSecond << " m/s on " << TagPath(F<uint32_t>(unit, 0))
+				<< (dead ? " (dead, gibs)" : " (alive, blood only)") << std::endl;
+		if (dead) QueueImpact(objectID, unit, hit);
+	}
+	void UpdateWoundsAndTrails()
+	{
+		if (!IsSinglePlayer()) return;
+		const ULONGLONG now = GetTickCount64();
+		const float amount = BloodAmount();
+		const ULONGLONG spotLife = PieceLifeMs();
+		for (BloodSpot& s : spots)
+			if (s.live && (now < s.born || now - s.born > spotLife)) s.live = false;
+		Vector3 playerAt{};
+		bool havePlayer = false;
+		if (BaseDynamicObject* player = Helpers::GetLocalPlayer())
+		{
+			playerAt = player->position;
+			havePlayer = true;
+			if (havePlayerSample)
+			{
+				const float dx = playerAt.x - playerSample.x, dy = playerAt.y - playerSample.y, dz = playerAt.z - playerSample.z;
+				if (dx * dx + dy * dy + dz * dz > 400.f) ForgetBloodMemory();
+			}
+			playerSample = playerAt;
+			havePlayerSample = true;
+		}
+		else havePlayerSample = false;
+
+		if (!WoundDripsOn() && !TrailsOn()) return;
+		ObjectTable& table = Helpers::GetObjectTable();
+		if (!table.elements) return;
+		// A firefight must not spawn an effect for every body every frame.
+		int dripsLeft = 4;
+		int trailsLeft = 4;
+		for (int i = 0; i < table.currentSize; i++)
+		{
+			ObjectDatum& datum = table.elements[i];
+			if (!datum.dynamicObject || datum.id == 0) continue;
+			const uint32_t id = (uint32_t(datum.id) << 16) | uint32_t(i);
+			uint8_t* unit = reinterpret_cast<uint8_t*>(datum.dynamicObject);
+			if (F<uint16_t>(unit, O_TYPE) != 0 || IsPieceID(id) || NoFlesh(unit)) continue;
+			const Vector3 pos = F<Vector3>(unit, O_POSITION);
+			const bool dead = (F<uint16_t>(unit, O_DAMAGE_FLAGS) & 4) != 0;
+			const bool inVehicle = F<uint32_t>(unit, O_PARENT) != NONE;
+			const bool onGround = (F<uint32_t>(unit, O_FLAGS) & 2u) != 0;
+			const bool inRange = !havePlayer || ((pos.x - playerAt.x) * (pos.x - playerAt.x) + (pos.y - playerAt.y) * (pos.y - playerAt.y) + (pos.z - playerAt.z) * (pos.z - playerAt.z) < 1600.f);
+
+			if (WoundDripsOn() && inRange)
+			{
+				DripUnit* tracked = nullptr;
+				DripUnit* freeSlot = nullptr;
+				for (DripUnit& d : dripUnits)
+				{
+					if (d.id == id) tracked = &d;
+					else if (!freeSlot && (d.id == NONE || !GetObject(d.id))) freeSlot = &d;
+				}
+				if (!tracked && !dead && !inVehicle) tracked = freeSlot;
+				if (tracked)
+				{
+					if (tracked->id != id)
+					{
+						*tracked = DripUnit();
+						tracked->id = id;
+					}
+					const std::string path = LowerPath(F<uint32_t>(unit, 0));
+					GoreRules::DripView view;
+					view.alive = !dead;
+					view.shieldRule = GoreRules::ShieldDripRule(F<float>(unit, O_MAX_SHIELD), IsPlayerUnit(id),
+						path.find("elite") != std::string::npos || path.find("cyborg") != std::string::npos,
+						path.find("flood") != std::string::npos);
+					view.body = F<float>(unit, O_BODY);
+					view.shield = F<float>(unit, O_BODY + 4);
+					static ULONGLONG dripEpoch = 0;
+					if (dripEpoch == 0 || now < dripEpoch) dripEpoch = now;
+					const ULONGLONG elapsed = now - dripEpoch;
+					view.nowMs = elapsed > 0x7fffffffULL ? 0x7fffffff : static_cast<int>(elapsed);
+					tracked->track = GoreRules::StepDrip(tracked->track, view);
+					if (!GoreRules::Dripping(tracked->track) || dead || inVehicle || !onGround)
+					{
+						tracked->havePos = false;
+					}
+					else
+					{
+						float moved = 0.f;
+						if (tracked->havePos)
+						{
+							const float dx = pos.x - tracked->lastX, dy = pos.y - tracked->lastY;
+							moved = std::sqrt(dx * dx + dy * dy);
+							if (moved > 8.f) { tracked->lastX = pos.x; tracked->lastY = pos.y; tracked->lastZ = pos.z; moved = 0.f; }
+						}
+						const int since = tracked->lastEmit == 0 ? 100000 : static_cast<int>(now - tracked->lastEmit);
+						if (!tracked->havePos) moved = 1.f; // the first drop falls where the hit landed
+						const bool standing = tracked->havePos && moved < 0.15f;
+						if (dripsLeft > 0 && GoreRules::DripEmitNow(since, moved, standing, amount))
+						{
+							dripsLeft--;
+							const uint32_t decal = DecalFor(unit);
+							Vector3 drop = pos;
+							FootOnGround(unit, (tracked->track.untilMs & 1), drop);
+							Vector3 landed;
+							// Ground splat of the species' own blood. The body
+							// effect is only the fallback when decals are unavailable.
+							if (!(bGround && PaintDecal(decal, id, drop, 0.45f, &landed)))
+								EmitBlood(DripBlood(unit), id, GoreRules::ScaledBursts(amount, 1));
+							tracked->lastEmit = now;
+							tracked->lastX = pos.x; tracked->lastY = pos.y; tracked->lastZ = pos.z;
+							tracked->havePos = true;
+						}
+						else if (!tracked->havePos)
+						{
+							tracked->lastX = pos.x; tracked->lastY = pos.y; tracked->lastZ = pos.z;
+							tracked->havePos = true;
+						}
+					}
+				}
+			}
+
+			if (dead || inVehicle || (!TrailsOn() && !FootprintsOn())) continue;
+			uint32_t spotEffect = NONE;
+			uint32_t spotDecal = NONE;
+			bool inSpot = false;
+			for (const BloodSpot& s : spots)
+			{
+				if (!s.live) continue;
+				if (GoreRules::InsideDisc(pos.x, pos.y, pos.z, GoreRules::Disc{ s.x, s.y, s.z, GoreRules::SpotRadiusWu }))
+				{
+					inSpot = true;
+					if (s.effect != NONE) spotEffect = s.effect;
+					if (s.decal != NONE) spotDecal = s.decal;
+					break;
+				}
+			}
+			TrailWalker* walker = nullptr;
+			TrailWalker* freeWalker = nullptr;
+			for (TrailWalker& w : walkers)
+			{
+				if (w.unit == id) walker = &w;
+				else if (!freeWalker && (w.unit == NONE || !GetObject(w.unit))) freeWalker = &w;
+			}
+			if (!walker) walker = freeWalker;
+			if (!walker) continue;
+			if (walker->unit != id)
+			{
+				*walker = TrailWalker();
+				walker->unit = id;
+				walker->lastX = pos.x;
+				walker->lastY = pos.y;
+			}
+			if (inSpot && spotEffect != NONE) walker->effect = spotEffect;
+			if (inSpot && spotDecal != NONE) walker->decal = spotDecal;
+			const float sdx = pos.x - walker->lastX, sdy = pos.y - walker->lastY;
+			const float stride = std::sqrt(sdx * sdx + sdy * sdy);
+			if (stride >= 8.f)
+			{
+				// Teleport or a recycled unit: do not lay a trail across the map.
+				walker->unit = NONE;
+				continue;
+			}
+			const std::string who = LowerPath(F<uint32_t>(unit, 0));
+			const float needStride = GoreRules::StrideWu(
+				who.find("hunter") != std::string::npos,
+				who.find("elite") != std::string::npos && who.find("flood") == std::string::npos,
+				who.find("grunt") != std::string::npos || who.find("jackal") != std::string::npos);
+			const bool moved = stride >= needStride;
+			const bool takeStep = moved && trailsLeft > 0;
+			const int fresh = GoreRules::TrailStepsMin + static_cast<int>(Rand(0.f, static_cast<float>(GoreRules::TrailStepsSpan) - 0.01f));
+			const GoreRules::TrailResult step = GoreRules::StepTrail(walker->trail, inSpot, onGround, takeStep, fresh);
+			walker->trail = step.walker;
+			if (takeStep || inSpot) { walker->lastX = pos.x; walker->lastY = pos.y; }
+			if (step.emit && trailsLeft > 0 && walker->decal != NONE && FootprintsOn())
+			{
+				trailsLeft--;
+				Vector3 landed;
+				Vector3 foot = pos;
+				FootOnGround(unit, walker->trail.stepsLeft & 1, foot);
+				PaintDecal(walker->decal, id, foot, 0.7f, &landed);
+			}
+			else if (step.emit && trailsLeft > 0 && walker->effect != NONE && TrailsOn())
+			{
+				trailsLeft--;
+				EmitBlood(walker->effect, id, 1);
+			}
+			if (!walker->trail.wet) walker->unit = NONE;
+		}
+	}
+
 	void HidePieces()
 	{
 		for (Piece& piece : pieces)
@@ -892,9 +1608,11 @@ namespace
 
 void Gore::PostObjectUpdate(uint32_t objectID)
 {
-	if (!bActive || activePieces == 0) return;
+	if (!bActive) return;
 	__try
 	{
+		NoteMotionAndImpact(objectID);
+		if (activePieces == 0) return;
 		for (Piece& piece : pieces)
 		{
 			if (piece.object != objectID || piece.nodeCount == 0) continue;
@@ -924,12 +1642,24 @@ void Gore::PostObjectUpdate(uint32_t objectID)
 				bool onGround = (F<uint32_t>(obj, O_FLAGS) & 2u) != 0;
 				// Hunter pieces drip more often and for longer (OpenCE:
 				// every 6 ticks for 90, against 12/36 for other species).
-				if (piece.ticks < (piece.hunter ? 270 : 150) && speed2 > 0.0009f && piece.ticks % (piece.hunter ? 3 : 6) == 0)
+				// Amount 1 keeps that cadence.
+				const int dripEvery = GoreRules::FlyingDripIntervalTicks(BloodAmount(), piece.hunter);
+				if (piece.ticks < (piece.hunter ? 270 : 150) && speed2 > 0.0009f && dripEvery > 0 && piece.ticks % dripEvery == 0)
 					EffectOnObject(piece.trailEffect, objectID, "body");
 				if (piece.airborne && onGround && piece.ticks > 3 && piece.splats < (piece.hunter ? 6 : 3))
 				{
-					EffectOnObject(piece.splatEffect, objectID, "body");
-					if (piece.hunter) EffectOnObject(piece.splatEffect, objectID, "body"); // bigger splat: effect-only blood, so a second burst
+					EmitBlood(piece.splatEffect, objectID, GoreRules::ScaledBursts(BloodAmount(), piece.hunter ? 2 : 1));
+					if (uint8_t* landed = GetObject(objectID))
+					{
+						const Vector3 at = F<Vector3>(landed, O_POSITION);
+						RememberSpot(piece.splatEffect, at);
+						if (GroundOn())
+						{
+							Vector3 hit;
+							const uint32_t decal = DecalFor(landed);
+							if (PaintDecal(decal, objectID, at, piece.hunter ? 1.3f : 0.6f, &hit)) RememberGround(decal, hit);
+						}
+					}
 					piece.splats++;
 					if (Game::instance.c_GoreLog->Value())
 						Logger::log << "[Gore] piece " << std::hex << objectID << std::dec << " landed: splat " << piece.splats << std::endl;
@@ -1028,6 +1758,19 @@ bool Gore::Init()
 		return false;
 	}
 	if (!fnEffectOnMarker) Logger::log << "[Gore] effect function not found: gibs without blood bursts" << std::endl;
+	bGround = false;
+	fnCollision = nullptr;
+	fnDecal = nullptr;
+	if (RetailGoreExe()
+		&& SigScanner::UpdateOffset(Hooks::o.CollisionTestVector) >= 0
+		&& SigScanner::UpdateOffset(Hooks::o.DecalNew) >= 0)
+	{
+		fnCollision = reinterpret_cast<FnCollision>(Hooks::o.CollisionTestVector.Address);
+		fnDecal = reinterpret_cast<FnDecal>(Hooks::o.DecalNew.Address);
+		bGround = fnCollision != nullptr && fnDecal != nullptr;
+	}
+	if (bGround) Logger::log << "[Gore] ground decals on (retail 1.0.10 collision ray and decal_new)" << std::endl;
+	else Logger::log << "[Gore] ground decals off: not retail 1.0.10 or the collision/decal signatures did not match. Footprints paint nothing" << std::endl;
 	bActive = true;
 	Logger::log << "[Gore] active" << std::endl;
 	Logger::log << "[Gore] config: GoreEnabled=1 GoreThresholdScale=" << Game::instance.c_GoreThresholdScale->Value()
@@ -1035,6 +1778,13 @@ bool Gore::Init()
 		<< " GoreShotgun=" << (Game::instance.c_GoreShotgun && Game::instance.c_GoreShotgun->Value() ? 1 : 0)
 		<< " GoreShotgunRange=" << (Game::instance.c_GoreShotgunRange ? Game::instance.c_GoreShotgunRange->Value() : -1.f)
 		<< " GoreHunterTank=" << (Game::instance.c_GoreHunterTank && Game::instance.c_GoreHunterTank->Value() ? 1 : 0)
+		<< " GoreBloodAmount=" << BloodAmount()
+		<< " GoreWoundDrips=" << (WoundDripsOn() ? 1 : 0)
+		<< " GoreImpact=" << (ImpactOn() ? 1 : 0)
+		<< " GoreTrails=" << (TrailsOn() ? 1 : 0)
+		<< " GoreFootprints=" << (FootprintsOn() ? 1 : 0)
+		<< " GoreLaunchScale=" << LaunchScale()
+		<< " GoreTyreMarks=" << (TyresOn() ? 1 : 0)
 		<< " GoreLog=" << (Game::instance.c_GoreLog->Value() ? 1 : 0) << " (keys missing from VR/config.txt keep these defaults)" << std::endl;
 	return true;
 }
@@ -1228,6 +1978,16 @@ void Gore::Update()
 	if (!bActive) return;
 	__try
 	{
+		// Once per frame, from PreDrawFrame, never from an eye pass.
+		const bool loading = Helpers::IsCampaignLoading();
+		if (loading && !sawCampaignLoad)
+		{
+			ForgetPieces();
+			ForgetBloodMemory();
+			sawCampaignLoad = true;
+		}
+		if (!loading) sawCampaignLoad = false;
+		if (loading) return;
 		for (Pending& p : pending)
 		{
 			if (p.unit == NONE) continue;
@@ -1250,7 +2010,7 @@ void Gore::Update()
 		activePieces = 0;
 		for (Piece& piece : pieces) if (piece.object != NONE) activePieces++;
 		ULONGLONG now = GetTickCount64();
-		ULONGLONG life = (ULONGLONG)(Game::instance.c_GorePieceSeconds->Value() * 1000.f);
+		ULONGLONG life = PieceLifeMs();
 		for (Piece& piece : pieces)
 		{
 			if (piece.object == NONE) continue;
@@ -1261,6 +2021,9 @@ void Gore::Update()
 				DeleteObject(piece.object); piece.object = NONE;
 			}
 		}
+		UpdateWoundsAndTrails();
+		UpdateTyres();
+		groundBudget = 8;
 	}
 	__except (EXCEPTION_EXECUTE_HANDLER)
 	{

@@ -88,6 +88,17 @@ public:
 	OFFSET(ObjectUpdate,          0x0f7ef0, "51 8b 0d ?? ?? ?? ?? 8b 51 34 53 8b 5c 24 0c 8b c3");
 	OFFSET(ObjectDelete,          0x0f5bd0, "8b 0d ?? ?? ?? ?? 8b 51 34 57 8b f8 25 ff ff 00 00");
 	OFFSET(EffectNewOnObjectMarker, 0x0888f0, "83 ec 6c 83 ff ff 74 55 83 fe ff 74 50 8b 4c 24 70");
+	// collision_test_vector. Retail PC 1.0.10.0621 halor, cdecl, 5 args
+	// (flags, point, vector, ignore object, result). Result type is a word
+	// at 0, t at 0x14, point at 0x18, plane normal at 0x24. Bits 5-7 of
+	// flags are structure/media/objects. Structure hits come back as type 2.
+	// This prologue occurs once in that exe.
+	OFFSET(CollisionTestVector, 0x105880, "81 ec 38 04 00 00 8b 8c 24 44 04 00 00 53 8b 9c 24 40 04 00 00");
+	// decal_new. Same exe, cdecl, 6 args: definition index, collision result,
+	// velocity, radius, flag byte, sequence (0 uses the first sprite, -1 any).
+	// The effect spawner calls it only after collision_test_vector reports a
+	// structure hit. Prologue occurs once.
+	OFFSET(DecalNew,            0x4edc0, "55 8b ec b8 44 cb 00 00 e8");
 	OFFSET(SetViewModelVisible,   0x092430, "51 8b 0d ?? ?? ?? ?? 66 83 f9 ff 74 ?? 8b 15 ?? ?? ?? ?? 56 0f bf f1");
 	OFFSET(TextureAlphaWrite,     0x11c9d1, "6a 01 6a 16 33 ?? 50 89 ?? ?? ?? ff 91 e4 00 00 00 a1 ?? ?? ?? ?? 8b 10 6a 07 68 a8 00 00 00 50 ff 92 e4 00 00 00 a1 ?? ?? ?? ?? 8b 08 6a 01 6a 1b 50");
 	OFFSET(TextAlphaWrite,        0x131b80, "a0 ?? ?? ?? ?? 84 c0 0f 84 ?? ?? ?? ?? 66 83 ?? ?? ?? ?? 00 01 0f 85 ?? ?? ?? ?? 53 55 56");
